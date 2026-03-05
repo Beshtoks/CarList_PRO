@@ -10,6 +10,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.carlist.pro.databinding.ActivityMainBinding
+import com.carlist.pro.domain.QueueManager
 
 class MainActivity : AppCompatActivity() {
 
@@ -41,7 +42,16 @@ class MainActivity : AppCompatActivity() {
 
         // Observe list changes (skip hard resets while dragging)
         viewModel.queueItems.observe(this) { list ->
-            binding.infoText.text = "Queue: ${list.size}"
+            // Center panel reserved for sync/network info
+            binding.infoText.text = "SYNC OFF"
+
+            // Right panel: MYCAR_POSITION/TOTAL (MyCar not implemented yet => "-" / total)
+            binding.counterText.text = if (list.isEmpty()) {
+                "-/-"
+            } else {
+                "-/${list.size}"
+            }
+
             if (!isDragging) {
                 adapter.submitItems(list)
             }
@@ -63,17 +73,19 @@ class MainActivity : AppCompatActivity() {
         val touchHelper = ItemTouchHelper(
             QueueTouchHelperCallback(
                 onMoveForDrag = { from, to ->
+                    // Keep adapter visuals in sync with domain, but DO NOT publish LiveData during drag
+                    viewModel.moveForDrag(from, to)
                     adapter.moveForDrag(from, to)
                 },
                 onSwipedRight = { position ->
-                    viewModel.deleteAt(position)
+                    viewModel.removeAt(position)
                 },
                 onDragStateChanged = { dragging ->
                     isDragging = dragging
                 },
-                onDragEnded = { from, to ->
-                    // Commit final move to domain (enforces invariants)
-                    viewModel.move(from, to)
+                onDragEnded = { _, _ ->
+                    // Publish final snapshot once after drag end
+                    viewModel.commitDrag()
                 }
             )
         )
@@ -84,15 +96,23 @@ class MainActivity : AppCompatActivity() {
         val text = binding.numberInput.text?.toString()?.trim().orEmpty()
         val number = text.toIntOrNull()
 
+        if (number == null) {
+            feedback.error()
+            binding.numberInput.setText("")
+            return
+        }
+
         val result = viewModel.addNumber(number)
 
         when (result) {
-            MainViewModel.AddUiResult.Added -> {
+            is QueueManager.AddResult.Added -> {
                 feedback.ok()
                 binding.numberInput.setText("")
                 // Recycler scrolling is handled by IME listener when keyboard is open
             }
-            MainViewModel.AddUiResult.Error -> {
+            QueueManager.AddResult.InvalidNumber,
+            QueueManager.AddResult.DuplicateInQueue,
+            QueueManager.AddResult.NotInRegistry -> {
                 feedback.error()
                 binding.numberInput.setText("")
             }
