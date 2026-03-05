@@ -2,9 +2,11 @@ package com.carlist.pro.ui
 
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.ItemTouchHelper
@@ -22,16 +24,24 @@ class MainActivity : AppCompatActivity() {
     private lateinit var feedback: SystemFeedback
 
     private var isDragging = false
+    private var imeVisibleNow: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Hard safety: keep classic window fitting (prevents edge-to-edge from breaking adjustResize)
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+
+        // Hard safety: enforce the SAME mode as manifest (stateHidden|adjustResize)
+        window.setSoftInputMode(
+            WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN or
+                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        )
+
         super.onCreate(savedInstanceState)
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // No KTX delegate: use classic ViewModelProvider
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
-
         feedback = SystemFeedback(this)
 
         adapter = QueueAdapter()
@@ -40,7 +50,7 @@ class MainActivity : AppCompatActivity() {
         binding.queueRecycler.layoutManager = layoutManager
         binding.queueRecycler.adapter = adapter
 
-        setupImeHandling()
+        setupImeHandlingOnDecorView()
 
         viewModel.queueItems.observe(this) { list ->
             // CENTER: reserved for sync/network info
@@ -51,10 +61,17 @@ class MainActivity : AppCompatActivity() {
 
             if (!isDragging) {
                 adapter.submitItems(list)
+
+                // Your real workflow: IME is usually visible from the very first entry.
+                if (imeVisibleNow && list.isNotEmpty()) {
+                    val last = list.size - 1
+                    binding.queueRecycler.post {
+                        layoutManager.scrollToPositionWithOffset(last, 0)
+                    }
+                }
             }
         }
 
-        // Enter -> add number
         binding.numberInput.setOnEditorActionListener { _, actionId, event ->
             val isEnter =
                 actionId == EditorInfo.IME_ACTION_DONE ||
@@ -66,7 +83,6 @@ class MainActivity : AppCompatActivity() {
             true
         }
 
-        // Drag & swipe
         val touchHelper = ItemTouchHelper(
             QueueTouchHelperCallback(
                 onMoveForDrag = { from, to ->
@@ -81,10 +97,21 @@ class MainActivity : AppCompatActivity() {
                 },
                 onDragEnded = { _, _ ->
                     viewModel.commitDrag()
+                    if (imeVisibleNow) {
+                        binding.queueRecycler.post {
+                            val count = adapter.itemCount
+                            if (count > 0) layoutManager.scrollToPositionWithOffset(count - 1, 0)
+                        }
+                    }
                 }
             )
         )
         touchHelper.attachToRecyclerView(binding.queueRecycler)
+
+        // Force initial insets dispatch
+        binding.root.post {
+            ViewCompat.requestApplyInsets(window.decorView)
+        }
     }
 
     private fun handleManualSubmit() {
@@ -104,7 +131,6 @@ class MainActivity : AppCompatActivity() {
                 feedback.ok()
                 binding.numberInput.setText("")
             }
-
             QueueManager.AddResult.InvalidNumber,
             QueueManager.AddResult.DuplicateInQueue,
             QueueManager.AddResult.NotInRegistry -> {
@@ -114,17 +140,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupImeHandling() {
-        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
-            val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
+    private fun setupImeHandlingOnDecorView() {
+        // IMPORTANT: attach listener to decorView (top-level window view)
+        // Some devices/ROMs don't reliably dispatch IME insets to content root.
+        ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { _, insets ->
+            imeVisibleNow = insets.isVisible(WindowInsetsCompat.Type.ime())
 
-            if (imeVisible) {
-                val count = adapter.itemCount
-                if (count > 0) {
-                    layoutManager.scrollToPositionWithOffset(count - 1, 0)
+            binding.queueRecycler.post {
+                if (imeVisibleNow) {
+                    val count = adapter.itemCount
+                    if (count > 0) layoutManager.scrollToPositionWithOffset(count - 1, 0)
+                } else {
+                    layoutManager.scrollToPositionWithOffset(0, 0)
                 }
-            } else {
-                layoutManager.scrollToPositionWithOffset(0, 0)
             }
 
             insets
