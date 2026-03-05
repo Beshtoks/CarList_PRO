@@ -1,5 +1,7 @@
 package com.carlist.pro.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.WindowManager
@@ -12,7 +14,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.carlist.pro.databinding.ActivityMainBinding
+import com.carlist.pro.domain.QueueItem
 import com.carlist.pro.domain.QueueManager
+import com.carlist.pro.domain.Status
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class MainActivity : AppCompatActivity() {
 
@@ -26,11 +31,15 @@ class MainActivity : AppCompatActivity() {
     private var isDragging = false
     private var imeVisibleNow: Boolean = false
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        // Hard safety: keep classic window fitting (prevents edge-to-edge from breaking adjustResize)
-        WindowCompat.setDecorFitsSystemWindows(window, true)
+    // AUTOCOPY rules:
+    // default OFF, label shows "AUTOCOPY ON"
+    // short tap -> copy once
+    // long press -> toggle auto mode
+    private var autoCopyEnabled: Boolean = false
 
-        // Hard safety: enforce the SAME mode as manifest (stateHidden|adjustResize)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // IME stability baseline (the fix that worked for you)
+        WindowCompat.setDecorFitsSystemWindows(window, true)
         window.setSoftInputMode(
             WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN or
                     WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
@@ -51,9 +60,10 @@ class MainActivity : AppCompatActivity() {
         binding.queueRecycler.adapter = adapter
 
         setupImeHandlingOnDecorView()
+        setupButtons()
 
         viewModel.queueItems.observe(this) { list ->
-            // CENTER: reserved for sync/network info
+            // CENTER reserved for sync/network (later). For now:
             binding.infoText.text = "SYNC OFF"
 
             // RIGHT: MYCAR_POSITION/TOTAL (MyCar not implemented yet => "-/TOTAL")
@@ -62,13 +72,18 @@ class MainActivity : AppCompatActivity() {
             if (!isDragging) {
                 adapter.submitItems(list)
 
-                // Your real workflow: IME is usually visible from the very first entry.
+                // Keep last visible while IME open (your normal workflow)
                 if (imeVisibleNow && list.isNotEmpty()) {
                     val last = list.size - 1
                     binding.queueRecycler.post {
                         layoutManager.scrollToPositionWithOffset(last, 0)
                     }
                 }
+            }
+
+            // Auto-copy after ANY queue change (if enabled)
+            if (autoCopyEnabled) {
+                copyQueueOnce(list)
             }
         }
 
@@ -114,6 +129,43 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupButtons() {
+        updateAutocopyButtonText()
+
+        // Short tap: copy once (regardless of auto mode)
+        binding.btnAutocopy.setOnClickListener {
+            val list = viewModel.queueItems.value.orEmpty()
+            copyQueueOnce(list)
+            feedback.ok()
+        }
+
+        // Long press: toggle auto mode
+        binding.btnAutocopy.setOnLongClickListener {
+            autoCopyEnabled = !autoCopyEnabled
+            updateAutocopyButtonText()
+            feedback.ok()
+            true
+        }
+
+        binding.btnClearList.setOnClickListener {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("CLEAR LIST")
+                .setMessage("Are you sure?")
+                .setPositiveButton("YES") { _, _ ->
+                    viewModel.clear()
+                    feedback.ok()
+                }
+                .setNegativeButton("NO", null)
+                .show()
+        }
+    }
+
+    private fun updateAutocopyButtonText() {
+        // Per spec: default OFF -> show "AUTOCOPY ON"
+        // Auto ON -> show "AUTOCOPY OFF"
+        binding.btnAutocopy.text = if (autoCopyEnabled) "AUTOCOPY OFF" else "AUTOCOPY ON"
+    }
+
     private fun handleManualSubmit() {
         val text = binding.numberInput.text?.toString()?.trim().orEmpty()
         val number = text.toIntOrNull()
@@ -140,9 +192,33 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun copyQueueOnce(list: List<QueueItem>) {
+        val text = buildQueueText(list)
+        val cm = getSystemService(ClipboardManager::class.java)
+        cm.setPrimaryClip(ClipData.newPlainText("CarList_PRO Queue", text))
+    }
+
+    private fun buildQueueText(list: List<QueueItem>): String {
+        if (list.isEmpty()) return ""
+
+        val sb = StringBuilder()
+        list.forEachIndexed { index, item ->
+            val lineIndex = index + 1
+            sb.append(lineIndex).append(". ").append(item.number)
+
+            // Categories come later (B/V/MY_CAR). For now: only status text.
+            when (item.status) {
+                Status.SERVICE -> sb.append(" ").append("SERVICE")
+                Status.JURNIEKS -> sb.append(" ").append("JURNIEKS")
+                Status.NONE -> { /* omit */ }
+            }
+
+            if (index != list.lastIndex) sb.append('\n')
+        }
+        return sb.toString()
+    }
+
     private fun setupImeHandlingOnDecorView() {
-        // IMPORTANT: attach listener to decorView (top-level window view)
-        // Some devices/ROMs don't reliably dispatch IME insets to content root.
         ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { _, insets ->
             imeVisibleNow = insets.isVisible(WindowInsetsCompat.Type.ime())
 

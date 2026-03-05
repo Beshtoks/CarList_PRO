@@ -120,6 +120,47 @@
 
     </LinearLayout>
 
+    <!-- Buttons row -->
+    <LinearLayout
+        android:id="@+id/actionRow"
+        android:layout_width="0dp"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        app:layout_constraintTop_toBottomOf="@id/topPanel"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAutocopy"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="AUTOCOPY ON"
+            android:textAllCaps="true"
+            android:textStyle="bold"
+            app:cornerRadius="10dp"
+            app:backgroundTint="#2B6CB0"
+            android:textColor="#FFFFFF"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnClearList"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:text="CLEAR LIST"
+            android:textAllCaps="true"
+            android:textStyle="bold"
+            app:cornerRadius="10dp"
+            app:backgroundTint="#C53030"
+            android:textColor="#FFFFFF"/>
+
+    </LinearLayout>
+
     <!-- Queue list -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/queueRecycler"
@@ -127,7 +168,7 @@
         android:layout_height="0dp"
         android:clipToPadding="false"
         android:paddingBottom="12dp"
-        app:layout_constraintTop_toBottomOf="@id/topPanel"
+        app:layout_constraintTop_toBottomOf="@id/actionRow"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
