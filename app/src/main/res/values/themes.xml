@@ -1,9 +1,8 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Base.Theme.CarList_PRO" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.CarListPRO" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Baseline theme -->
     </style>
 
-    <style name="Theme.CarList_PRO" parent="Base.Theme.CarList_PRO" />
 </resources>
