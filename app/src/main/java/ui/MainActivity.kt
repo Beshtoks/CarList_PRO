@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import androidx.appcompat.app.AppCompatActivity
@@ -31,14 +32,11 @@ class MainActivity : AppCompatActivity() {
     private var isDragging = false
     private var imeVisibleNow: Boolean = false
 
-    // AUTOCOPY rules:
-    // default OFF, label shows "AUTOCOPY ON"
-    // short tap -> copy once
-    // long press -> toggle auto mode
     private var autoCopyEnabled: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // IME stability baseline (the fix that worked for you)
+
+        // IME stability baseline (confirmed working)
         WindowCompat.setDecorFitsSystemWindows(window, true)
         window.setSoftInputMode(
             WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN or
@@ -61,18 +59,16 @@ class MainActivity : AppCompatActivity() {
 
         setupImeHandlingOnDecorView()
         setupButtons()
+        setupInputPanelTap()
 
         viewModel.queueItems.observe(this) { list ->
-            // CENTER reserved for sync/network (later). For now:
-            binding.infoText.text = "SYNC OFF"
 
-            // RIGHT: MYCAR_POSITION/TOTAL (MyCar not implemented yet => "-/TOTAL")
+            binding.infoText.text = "SYNC OFF"
             binding.counterText.text = if (list.isEmpty()) "-/-" else "-/${list.size}"
 
             if (!isDragging) {
                 adapter.submitItems(list)
 
-                // Keep last visible while IME open (your normal workflow)
                 if (imeVisibleNow && list.isNotEmpty()) {
                     val last = list.size - 1
                     binding.queueRecycler.post {
@@ -81,16 +77,17 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // Auto-copy after ANY queue change (if enabled)
             if (autoCopyEnabled) {
                 copyQueueOnce(list)
             }
         }
 
         binding.numberInput.setOnEditorActionListener { _, actionId, event ->
+
             val isEnter =
                 actionId == EditorInfo.IME_ACTION_DONE ||
-                        (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)
+                        (event?.keyCode == KeyEvent.KEYCODE_ENTER &&
+                                event.action == KeyEvent.ACTION_DOWN)
 
             if (!isEnter) return@setOnEditorActionListener false
 
@@ -112,10 +109,13 @@ class MainActivity : AppCompatActivity() {
                 },
                 onDragEnded = { _, _ ->
                     viewModel.commitDrag()
+
                     if (imeVisibleNow) {
                         binding.queueRecycler.post {
                             val count = adapter.itemCount
-                            if (count > 0) layoutManager.scrollToPositionWithOffset(count - 1, 0)
+                            if (count > 0) {
+                                layoutManager.scrollToPositionWithOffset(count - 1, 0)
+                            }
                         }
                     }
                 }
@@ -127,19 +127,45 @@ class MainActivity : AppCompatActivity() {
         binding.root.post {
             ViewCompat.requestApplyInsets(window.decorView)
         }
+
+        // Initial visual state: hint visible, cursor hidden
+        applyInputVisualState(imeVisible = false)
+    }
+
+    private fun setupInputPanelTap() {
+        // Tap on the whole left panel should always bring up keyboard,
+        // and ONLY then we show cursor + hide hint.
+        binding.inputPanel.setOnClickListener {
+            binding.numberInput.requestFocus()
+        }
+        binding.inputHint.setOnClickListener {
+            binding.numberInput.requestFocus()
+        }
+    }
+
+    private fun applyInputVisualState(imeVisible: Boolean) {
+        if (imeVisible) {
+            // IME on screen -> empty black field + blinking cursor
+            binding.inputHint.visibility = View.INVISIBLE
+            binding.numberInput.isCursorVisible = true
+        } else {
+            // IME hidden -> show icons, NO cursor blinking
+            binding.inputHint.visibility = View.VISIBLE
+            binding.numberInput.isCursorVisible = false
+            binding.numberInput.clearFocus()
+        }
     }
 
     private fun setupButtons() {
+
         updateAutocopyButtonText()
 
-        // Short tap: copy once (regardless of auto mode)
         binding.btnAutocopy.setOnClickListener {
             val list = viewModel.queueItems.value.orEmpty()
             copyQueueOnce(list)
             feedback.ok()
         }
 
-        // Long press: toggle auto mode
         binding.btnAutocopy.setOnLongClickListener {
             autoCopyEnabled = !autoCopyEnabled
             updateAutocopyButtonText()
@@ -161,12 +187,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateAutocopyButtonText() {
-        // Per spec: default OFF -> show "AUTOCOPY ON"
-        // Auto ON -> show "AUTOCOPY OFF"
         binding.btnAutocopy.text = if (autoCopyEnabled) "AUTOCOPY OFF" else "AUTOCOPY ON"
     }
 
     private fun handleManualSubmit() {
+
         val text = binding.numberInput.text?.toString()?.trim().orEmpty()
         val number = text.toIntOrNull()
 
@@ -206,11 +231,10 @@ class MainActivity : AppCompatActivity() {
             val lineIndex = index + 1
             sb.append(lineIndex).append(". ").append(item.number)
 
-            // Categories come later (B/V/MY_CAR). For now: only status text.
             when (item.status) {
-                Status.SERVICE -> sb.append(" ").append("SERVICE")
-                Status.JURNIEKS -> sb.append(" ").append("JURNIEKS")
-                Status.NONE -> { /* omit */ }
+                Status.SERVICE -> sb.append(" SERVICE")
+                Status.JURNIEKS -> sb.append(" JURNIEKS")
+                Status.NONE -> {}
             }
 
             if (index != list.lastIndex) sb.append('\n')
@@ -220,7 +244,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupImeHandlingOnDecorView() {
         ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { _, insets ->
+
             imeVisibleNow = insets.isVisible(WindowInsetsCompat.Type.ime())
+            applyInputVisualState(imeVisibleNow)
 
             binding.queueRecycler.post {
                 if (imeVisibleNow) {
