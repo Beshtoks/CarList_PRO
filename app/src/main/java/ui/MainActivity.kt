@@ -3,10 +3,10 @@ package com.carlist.pro.ui
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.inputmethod.EditorInfo
-import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.carlist.pro.databinding.ActivityMainBinding
@@ -15,7 +15,7 @@ import com.carlist.pro.domain.QueueManager
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private val viewModel: MainViewModel by viewModels()
+    private lateinit var viewModel: MainViewModel
 
     private lateinit var adapter: QueueAdapter
     private lateinit var layoutManager: LinearLayoutManager
@@ -29,6 +29,9 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // No KTX delegate: use classic ViewModelProvider
+        viewModel = ViewModelProvider(this)[MainViewModel::class.java]
+
         feedback = SystemFeedback(this)
 
         adapter = QueueAdapter()
@@ -37,20 +40,14 @@ class MainActivity : AppCompatActivity() {
         binding.queueRecycler.layoutManager = layoutManager
         binding.queueRecycler.adapter = adapter
 
-        // IME tracking (stable approach from your spec)
         setupImeHandling()
 
-        // Observe list changes (skip hard resets while dragging)
         viewModel.queueItems.observe(this) { list ->
-            // Center panel reserved for sync/network info
+            // CENTER: reserved for sync/network info
             binding.infoText.text = "SYNC OFF"
 
-            // Right panel: MYCAR_POSITION/TOTAL (MyCar not implemented yet => "-" / total)
-            binding.counterText.text = if (list.isEmpty()) {
-                "-/-"
-            } else {
-                "-/${list.size}"
-            }
+            // RIGHT: MYCAR_POSITION/TOTAL (MyCar not implemented yet => "-/TOTAL")
+            binding.counterText.text = if (list.isEmpty()) "-/-" else "-/${list.size}"
 
             if (!isDragging) {
                 adapter.submitItems(list)
@@ -73,7 +70,6 @@ class MainActivity : AppCompatActivity() {
         val touchHelper = ItemTouchHelper(
             QueueTouchHelperCallback(
                 onMoveForDrag = { from, to ->
-                    // Keep adapter visuals in sync with domain, but DO NOT publish LiveData during drag
                     viewModel.moveForDrag(from, to)
                     adapter.moveForDrag(from, to)
                 },
@@ -84,7 +80,6 @@ class MainActivity : AppCompatActivity() {
                     isDragging = dragging
                 },
                 onDragEnded = { _, _ ->
-                    // Publish final snapshot once after drag end
                     viewModel.commitDrag()
                 }
             )
@@ -108,8 +103,8 @@ class MainActivity : AppCompatActivity() {
             is QueueManager.AddResult.Added -> {
                 feedback.ok()
                 binding.numberInput.setText("")
-                // Recycler scrolling is handled by IME listener when keyboard is open
             }
+
             QueueManager.AddResult.InvalidNumber,
             QueueManager.AddResult.DuplicateInQueue,
             QueueManager.AddResult.NotInRegistry -> {
