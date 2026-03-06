@@ -13,14 +13,29 @@
     app:cardElevation="0dp"
     app:strokeWidth="0dp">
 
-    <TextView
-        android:id="@+id/numberText"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:gravity="center"
-        android:text="12"
-        android:textSize="28sp"
-        android:textStyle="bold"
-        android:textColor="#000000"/>
+        android:layout_height="match_parent">
+
+        <ImageView
+            android:id="@+id/transportIcon"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_gravity="start|center_vertical"
+            android:layout_marginStart="10dp"
+            android:contentDescription="transport"
+            android:visibility="gone"/>
+
+        <TextView
+            android:id="@+id/numberText"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:text="12"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:textColor="#000000"/>
+
+    </FrameLayout>
 
 </com.google.android.material.card.MaterialCardView>

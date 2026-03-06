@@ -1,13 +1,20 @@
 package com.carlist.pro.ui
 
+import android.graphics.Color
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
+import com.carlist.pro.R
 import com.carlist.pro.databinding.ItemQueueCardBinding
 import com.carlist.pro.domain.QueueItem
 import com.carlist.pro.domain.Status
+import com.carlist.pro.domain.TransportInfo
+import com.carlist.pro.domain.TransportType
 
-class QueueAdapter : RecyclerView.Adapter<QueueAdapter.VH>() {
+class QueueAdapter(
+    private val transportInfoProvider: ((Int) -> TransportInfo)? = null
+) : RecyclerView.Adapter<QueueAdapter.VH>() {
 
     private val items: MutableList<QueueItem> = mutableListOf()
 
@@ -37,24 +44,61 @@ class QueueAdapter : RecyclerView.Adapter<QueueAdapter.VH>() {
     }
 
     override fun onBindViewHolder(holder: VH, position: Int) {
-        holder.bind(items[position])
+        holder.bind(items[position], transportInfoProvider)
     }
 
     override fun getItemCount(): Int = items.size
 
-    class VH(private val binding: ItemQueueCardBinding) : RecyclerView.ViewHolder(binding.root) {
+    class VH(
+        private val binding: ItemQueueCardBinding
+    ) : RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(item: QueueItem) {
+        fun bind(
+            item: QueueItem,
+            infoProvider: ((Int) -> TransportInfo)?
+        ) {
             binding.numberText.text = item.number.toString()
 
-            val bg = when (item.status) {
-                Status.NONE -> 0xFFB7E5A5.toInt()     // light green
-                Status.SERVICE -> 0xFFF5B7B1.toInt()  // light pink
-                Status.JURNIEKS -> 0xFFAED6F1.toInt() // light blue
+            val bgColor = when (item.status) {
+                Status.NONE -> 0xFFB7E5A5.toInt()      // light green
+                Status.SERVICE -> 0xFFF5B7B1.toInt()   // light pink
+                Status.JURNIEKS -> 0xFFAED6F1.toInt()  // light blue
             }
 
-            binding.cardRoot.setCardBackgroundColor(bg)
-            binding.numberText.setTextColor(0xFF000000.toInt())
+            binding.cardRoot.setCardBackgroundColor(bgColor)
+
+            // Очень тёмно-зелёный цвет номера
+            binding.numberText.setTextColor(0xFF0B3D0B.toInt())
+
+            val info = infoProvider?.invoke(item.number) ?: TransportInfo()
+
+            when (info.transportType) {
+                TransportType.BUS -> {
+                    binding.transportIcon.visibility = View.VISIBLE
+                    binding.transportIcon.setImageResource(R.drawable.ic_directions_bus)
+                }
+                TransportType.VAN -> {
+                    binding.transportIcon.visibility = View.VISIBLE
+                    binding.transportIcon.setImageResource(R.drawable.ic_airport_shuttle)
+                }
+                TransportType.NONE -> {
+                    binding.transportIcon.visibility = View.GONE
+                }
+            }
+
+            binding.transportIcon.setColorFilter(Color.BLACK)
+
+            if (info.isMyCar) {
+                binding.cardRoot.strokeWidth = dpToPx(3f)
+                binding.cardRoot.strokeColor = 0xFFFFB300.toInt()
+            } else {
+                binding.cardRoot.strokeWidth = 0
+            }
+        }
+
+        private fun dpToPx(dp: Float): Int {
+            val density = binding.root.resources.displayMetrics.density
+            return (dp * density + 0.5f).toInt()
         }
     }
 }
