@@ -20,20 +20,21 @@ class DriverRegistryDialogFragment : DialogFragment() {
     private val binding get() = _binding!!
 
     private lateinit var adapter: DriverRegistryAdapter
+    private lateinit var viewModel: MainViewModel
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         _binding = DialogDriverRegistryBinding.inflate(LayoutInflater.from(requireContext()))
 
         val main = activity as MainActivity
-        val viewModel = main.getMainViewModel()
+        viewModel = main.getMainViewModel()
 
         adapter = DriverRegistryAdapter(
             getItems = { viewModel.getRegistryRows() },
             onRowActivated = { pos -> viewModel.setRegistryActiveRow(pos) },
-            onNumberCommitted = { pos, old, txt -> viewModel.commitRegistryNumber(pos, old, txt) },
+            onNumberCommitted = { pos, old, txt ->
+                viewModel.commitRegistryNumber(pos, old, txt)
+            },
             onCategoryAction = { number, action ->
-                // если у тебя в VM уже есть обработчик категорий — оставляем как есть.
-                // (Адаптер сам отдаёт action, VM решает что делать)
                 viewModel.onRegistryCategoryAction(number, action)
             }
         )
@@ -41,22 +42,19 @@ class DriverRegistryDialogFragment : DialogFragment() {
         binding.registryRecycler.layoutManager = LinearLayoutManager(requireContext())
         binding.registryRecycler.adapter = adapter
 
-        binding.btnOk.setOnClickListener { dismissAllowingStateLoss() }
+        binding.btnOk.setOnClickListener {
+            dismissAllowingStateLoss()
+        }
 
-        // перерисовка меню при любых изменениях реестра/категорий
-        viewModel.registryUiTick.observe(this) { adapter.refresh() }
+        viewModel.registryUiTick.observe(this) {
+            adapter.refresh()
+        }
 
         val dialog = AlertDialog.Builder(requireContext())
             .setView(binding.root)
             .create()
 
         dialog.setCanceledOnTouchOutside(true)
-
-        // Важно: меню НЕ ресайзится под клавиатуру — клавиатура перекрывает низ (как ты и просил).
-        dialog.window?.setSoftInputMode(
-            WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or
-                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-        )
 
         return dialog
     }
@@ -65,7 +63,6 @@ class DriverRegistryDialogFragment : DialogFragment() {
         super.onStart()
 
         dialog?.window?.let { w ->
-            // Уже и пониже.
             val width = (resources.displayMetrics.widthPixels * 0.84f).roundToInt()
             w.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
 
@@ -73,18 +70,33 @@ class DriverRegistryDialogFragment : DialogFragment() {
                 gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
                 y = dp(24)
             }
+
+            w.setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or
+                        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+            )
+
+            w.clearFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
         }
 
-        // КЛЮЧ: отдаём фокус EditText внутри диалога, чтобы ввод НЕ улетал в главное табло.
         binding.registryRecycler.post {
             adapter.refresh()
-            val holder = binding.registryRecycler.findViewHolderForAdapterPosition(0) as? DriverRegistryAdapter.VH
-            holder?.focusField()
+            focusFirstFieldAndShowKeyboard()
+        }
+    }
 
+    private fun focusFirstFieldAndShowKeyboard() {
+        val holder =
+            binding.registryRecycler.findViewHolderForAdapterPosition(0) as? DriverRegistryAdapter.VH
+                ?: return
+
+        holder.focusField()
+
+        val edit = holder.getEditText()
+        edit.post {
+            holder.focusField()
             val imm = requireContext().getSystemService(InputMethodManager::class.java)
-            holder?.getEditText()?.let { et ->
-                imm.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT)
-            }
+            imm.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
         }
     }
 

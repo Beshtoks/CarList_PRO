@@ -1,225 +1,180 @@
 package com.carlist.pro.ui
 
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
+import com.carlist.pro.data.DriverRegistryStore
 import com.carlist.pro.domain.QueueItem
 import com.carlist.pro.domain.QueueManager
 import com.carlist.pro.domain.Status
 import com.carlist.pro.domain.TransportInfo
 import com.carlist.pro.domain.TransportType
 
-class MainViewModel : ViewModel() {
+class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val queueManager = QueueManager()
+    private val registryStore = DriverRegistryStore(app.applicationContext)
 
     private val _queueItems = MutableLiveData<List<QueueItem>>(queueManager.snapshot())
     val queueItems: LiveData<List<QueueItem>> = _queueItems
 
-    private val _allowedNumbers: MutableList<Int> = mutableListOf()
-    private val _transportTypeByNumber: MutableMap<Int, TransportType> = mutableMapOf()
-    private val _myCarByNumber: MutableSet<Int> = mutableSetOf()
-
-    private var activeRegistryRow: Int = 0
-    private var errorRegistryRow: Int? = null
-
     private val _registryUiTick = MutableLiveData<Long>(0L)
     val registryUiTick: LiveData<Long> = _registryUiTick
 
-    fun addNumber(number: Int?): QueueManager.AddResult {
-        val parsed = number ?: return QueueManager.AddResult.InvalidNumber
+    private var activeRowIndex: Int = 0
+    private var lastCommitFailedRow: Int? = null
+
+    fun addNumber(numberOrNull: Int?): QueueManager.AddResult {
+        val number = numberOrNull ?: return QueueManager.AddResult.InvalidNumber
+
+        if (number !in 1..99) return QueueManager.AddResult.InvalidNumber
 
         val result = queueManager.addNumber(
-            number = parsed,
-            isNumberAllowedByRegistry = { n ->
-                if (_allowedNumbers.isEmpty()) true else _allowedNumbers.contains(n)
-            }
+            number = number,
+            isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
         )
-
         publishSnapshot()
         return result
     }
 
-    fun deleteAt(index: Int): QueueManager.OperationResult {
-        val result = queueManager.removeAt(index)
+    fun removeAt(index: Int): QueueManager.OperationResult {
+        val res = queueManager.removeAt(index)
         publishSnapshot()
-        return result
-    }
-
-    fun removeAt(index: Int): QueueManager.OperationResult = deleteAt(index)
-
-    fun clear(): QueueManager.OperationResult {
-        val result = queueManager.clear()
-        publishSnapshot()
-        return result
+        return res
     }
 
     fun setStatus(number: Int, status: Status): QueueManager.OperationResult {
-        val result = queueManager.setStatus(number, status)
+        val res = queueManager.setStatus(number, status)
         publishSnapshot()
-        return result
+        return res
+    }
+
+    fun clear(): QueueManager.OperationResult {
+        val res = queueManager.clear()
+        publishSnapshot()
+        return res
     }
 
     fun moveForDrag(from: Int, to: Int): QueueManager.OperationResult {
         return queueManager.move(from, to)
     }
 
-    fun move(from: Int, to: Int): QueueManager.OperationResult {
-        val result = queueManager.move(from, to)
-        publishSnapshot()
-        return result
-    }
-
     fun commitDrag() {
         publishSnapshot()
     }
 
-    private fun publishSnapshot() {
-        _queueItems.value = queueManager.snapshot()
+    fun getTransportInfo(number: Int): TransportInfo {
+        return registryStore.getInfo(number)
     }
 
-    private fun tickRegistryUi() {
-        _registryUiTick.value = (_registryUiTick.value ?: 0L) + 1L
+    fun findMyCarPosition(queue: List<QueueItem>): Int? {
+        val idx = queue.indexOfFirst { registryStore.getInfo(it.number).isMyCar }
+        return if (idx == -1) null else idx + 1
     }
 
     fun getRegistryRows(): List<RegistryRow> {
-        val rows = mutableListOf<RegistryRow>()
+        val numbers = registryStore.getAllowedNumbers()
 
-        for ((index, number) in _allowedNumbers.withIndex()) {
-            rows += RegistryRow(
-                number = number,
-                info = TransportInfo(
-                    transportType = _transportTypeByNumber[number] ?: TransportType.NONE,
-                    isMyCar = _myCarByNumber.contains(number)
-                ),
-                underline = underlineForRow(index)
+        val rows = mutableListOf<RegistryRow>()
+        numbers.forEachIndexed { idx, n ->
+            val underline = when {
+                lastCommitFailedRow == idx -> UnderlineState.RED
+                idx == activeRowIndex -> UnderlineState.BLUE
+                else -> UnderlineState.NONE
+            }
+            rows.add(
+                RegistryRow(
+                    number = n,
+                    info = registryStore.getInfo(n),
+                    underline = underline
+                )
             )
         }
 
-        rows += RegistryRow(
-            number = null,
-            info = TransportInfo(
-                transportType = TransportType.NONE,
-                isMyCar = false
-            ),
-            underline = underlineForRow(rows.size)
+        val underlineNew = if (numbers.size == activeRowIndex) UnderlineState.BLUE else UnderlineState.NONE
+        rows.add(
+            RegistryRow(
+                number = null,
+                info = TransportInfo(TransportType.NONE, false),
+                underline = underlineNew
+            )
         )
 
         return rows
     }
 
-    private fun underlineForRow(pos: Int): UnderlineState {
-        return when {
-            errorRegistryRow == pos -> UnderlineState.RED
-            activeRegistryRow == pos -> UnderlineState.BLUE
-            else -> UnderlineState.NONE
-        }
-    }
-
-    fun setRegistryActiveRow(position: Int) {
-        activeRegistryRow = position
-        errorRegistryRow = null
-        tickRegistryUi()
+    fun setRegistryActiveRow(pos: Int) {
+        activeRowIndex = pos.coerceAtLeast(0)
+        lastCommitFailedRow = null
+        tickRegistry()
     }
 
     fun commitRegistryNumber(position: Int, oldNumber: Int?, newText: String): CommitResult {
-        activeRegistryRow = position
-        errorRegistryRow = null
-
         val trimmed = newText.trim()
+        val newNumber = trimmed.toIntOrNull()
 
-        if (trimmed.isEmpty()) {
+        if (trimmed.isBlank()) {
             if (oldNumber != null) {
-                removeFromRegistry(oldNumber)
+                registryStore.removeNumber(oldNumber)
                 queueManager.removeByNumber(oldNumber)
                 publishSnapshot()
             }
-            tickRegistryUi()
+            lastCommitFailedRow = null
+            activeRowIndex = position.coerceAtLeast(0)
+            tickRegistry()
             return CommitResult.OK
         }
 
-        val parsed = trimmed.toIntOrNull()
-        if (parsed == null || parsed !in 1..99) {
-            errorRegistryRow = position
-            tickRegistryUi()
+        if (newNumber == null || newNumber !in 1..99) {
+            lastCommitFailedRow = position
+            tickRegistry()
             return CommitResult.ERROR_CLEAR
         }
 
-        val isDuplicate = _allowedNumbers.contains(parsed) && parsed != oldNumber
-        if (isDuplicate) {
-            errorRegistryRow = position
-            tickRegistryUi()
+        val res = registryStore.upsertNumber(oldNumber, newNumber)
+        if (res.isFailure) {
+            lastCommitFailedRow = position
+            tickRegistry()
             return CommitResult.ERROR_CLEAR
         }
 
-        if (oldNumber != null) {
-            val idx = _allowedNumbers.indexOf(oldNumber)
-            if (idx != -1) {
-                _allowedNumbers[idx] = parsed
+        lastCommitFailedRow = null
+        activeRowIndex = (position + 1).coerceAtLeast(0)
 
-                val oldType = _transportTypeByNumber.remove(oldNumber)
-                if (oldType != null) {
-                    _transportTypeByNumber[parsed] = oldType
-                } else {
-                    _transportTypeByNumber.remove(parsed)
-                }
-
-                if (_myCarByNumber.remove(oldNumber)) {
-                    _myCarByNumber.add(parsed)
-                }
-
-                queueManager.removeByNumber(oldNumber)
-                publishSnapshot()
-            }
-        } else {
-            _allowedNumbers.add(parsed)
-        }
-
-        tickRegistryUi()
+        tickRegistry()
         return CommitResult.OK
-    }
-
-    private fun removeFromRegistry(number: Int) {
-        _allowedNumbers.remove(number)
-        _transportTypeByNumber.remove(number)
-        _myCarByNumber.remove(number)
     }
 
     fun onRegistryCategoryAction(number: Int, action: DriverRegistryAdapter.CategoryAction) {
         when (action) {
-            DriverRegistryAdapter.CategoryAction.BUS -> {
-                _transportTypeByNumber[number] = TransportType.BUS
-            }
-
-            DriverRegistryAdapter.CategoryAction.VAN -> {
-                _transportTypeByNumber[number] = TransportType.VAN
-            }
-
-            DriverRegistryAdapter.CategoryAction.MY_CAR -> {
-                if (_myCarByNumber.contains(number)) {
-                    _myCarByNumber.remove(number)
-                } else {
-                    _myCarByNumber.add(number)
-                }
-            }
-
-            DriverRegistryAdapter.CategoryAction.CLEAR -> {
-                _transportTypeByNumber[number] = TransportType.NONE
-                _myCarByNumber.remove(number)
-            }
+            DriverRegistryAdapter.CategoryAction.BUS -> setRegistryTransportType(number, TransportType.BUS)
+            DriverRegistryAdapter.CategoryAction.VAN -> setRegistryTransportType(number, TransportType.VAN)
+            DriverRegistryAdapter.CategoryAction.MY_CAR -> toggleRegistryMyCar(number)
+            DriverRegistryAdapter.CategoryAction.CLEAR -> clearRegistryCategories(number)
         }
-        tickRegistryUi()
     }
 
-    fun getTransportInfo(number: Int): TransportInfo {
-        return TransportInfo(
-            transportType = _transportTypeByNumber[number] ?: TransportType.NONE,
-            isMyCar = _myCarByNumber.contains(number)
-        )
+    fun setRegistryTransportType(number: Int, type: TransportType) {
+        registryStore.setTransportType(number, type)
+        tickRegistry()
     }
 
-    fun findMyCarPosition(queue: List<QueueItem>): Int? {
-        val index = queue.indexOfFirst { _myCarByNumber.contains(it.number) }
-        return if (index == -1) null else index + 1
+    fun toggleRegistryMyCar(number: Int) {
+        registryStore.toggleMyCar(number)
+        tickRegistry()
+    }
+
+    fun clearRegistryCategories(number: Int) {
+        registryStore.clearCategories(number)
+        tickRegistry()
+    }
+
+    private fun tickRegistry() {
+        _registryUiTick.value = (_registryUiTick.value ?: 0L) + 1L
+    }
+
+    private fun publishSnapshot() {
+        _queueItems.value = queueManager.snapshot()
     }
 }

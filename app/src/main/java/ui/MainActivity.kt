@@ -35,7 +35,6 @@ class MainActivity : AppCompatActivity() {
     private var techFirstTapAtMs = 0L
     private var techCountdownActive = false
 
-    // КЛЮЧ: пока открыто техменю — Activity не вмешивается в фокус/инпут
     private var isTechMenuOpen = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -95,7 +94,6 @@ class MainActivity : AppCompatActivity() {
 
             if (!isEnter) return@setOnEditorActionListener false
 
-            // Пока техменю открыто — ввод в очередь запрещён (иначе IME улетает туда)
             if (isTechMenuOpen) return@setOnEditorActionListener true
 
             handleManualSubmit()
@@ -131,7 +129,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
 
-        // Пока меню открыто — Activity не считает тап-счётчик (чтобы не было побочных эффектов)
         if (!isTechMenuOpen && ev.action == MotionEvent.ACTION_DOWN) {
 
             val location = IntArray(2)
@@ -155,7 +152,6 @@ class MainActivity : AppCompatActivity() {
 
     fun getMainViewModel(): MainViewModel = viewModel
 
-    // Вызывается из DriverRegistryDialogFragment при закрытии
     fun onTechnicalMenuClosed() {
         isTechMenuOpen = false
         techTapCount = 0
@@ -178,7 +174,7 @@ class MainActivity : AppCompatActivity() {
 
         when (techTapCount) {
 
-            1 -> { /* tap1 -> no output */ }
+            1 -> {}
 
             2 -> {
                 techCountdownActive = true
@@ -187,6 +183,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             3 -> binding.inputHint.text = "2"
+
             4 -> binding.inputHint.text = "1"
 
             5 -> {
@@ -202,12 +199,9 @@ class MainActivity : AppCompatActivity() {
 
         isTechMenuOpen = true
 
-        // КЛЮЧ: полностью отвязываем IME от numberInput
         binding.numberInput.clearFocus()
         binding.numberInput.isCursorVisible = false
 
-        // Важно: скрываем клавиатуру именно от токена numberInput,
-        // чтобы следующий фокус (в диалоге) получил IME корректно.
         val imm = getSystemService(InputMethodManager::class.java)
         imm.hideSoftInputFromWindow(binding.numberInput.windowToken, 0)
 
@@ -217,7 +211,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyInputVisualState(imeVisible: Boolean) {
 
-        // Пока техменю открыто — Activity не трогает панель ввода (иначе снова фокус уедет)
         if (isTechMenuOpen) return
 
         if (techCountdownActive) {
@@ -332,7 +325,6 @@ class MainActivity : AppCompatActivity() {
 
             applyInputVisualState(imeVisibleNow)
 
-            // Пока техменю открыто — не скроллим очередь из-за IME
             if (!isTechMenuOpen) {
                 binding.queueRecycler.post {
                     if (imeVisibleNow) {

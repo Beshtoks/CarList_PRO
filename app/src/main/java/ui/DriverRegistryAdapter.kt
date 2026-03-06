@@ -5,7 +5,6 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
-import android.widget.EditText
 import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.RecyclerView
 import com.carlist.pro.databinding.ItemRegistryRowBinding
@@ -28,13 +27,12 @@ class DriverRegistryAdapter(
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-        val binding = ItemRegistryRowBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+        val binding = ItemRegistryRowBinding.inflate(
+            LayoutInflater.from(parent.context),
+            parent,
+            false
+        )
         return VH(binding)
-    }
-
-    override fun onBindViewHolder(holder: VH, position: Int) {
-        if (items.isEmpty()) items = getItems()
-        holder.bind(items[position], position)
     }
 
     override fun getItemCount(): Int {
@@ -42,20 +40,27 @@ class DriverRegistryAdapter(
         return items.size
     }
 
-    inner class VH(private val binding: ItemRegistryRowBinding) : RecyclerView.ViewHolder(binding.root) {
+    override fun onBindViewHolder(holder: VH, position: Int) {
+        if (items.isEmpty()) items = getItems()
+        holder.bind(items[position], position)
+    }
+
+    inner class VH(
+        private val binding: ItemRegistryRowBinding
+    ) : RecyclerView.ViewHolder(binding.root) {
 
         fun bind(row: RegistryRow, position: Int) {
+            val asText = row.number?.toString().orEmpty()
 
-            binding.tvLetters.text = row.info.letters()
-
-            val txt = row.number?.toString().orEmpty()
-            if (binding.etNumber.text?.toString() != txt) {
-                binding.etNumber.setText(txt)
+            if (binding.etNumber.text?.toString() != asText) {
+                binding.etNumber.setText(asText)
                 binding.etNumber.setSelection(binding.etNumber.text?.length ?: 0)
             }
 
+            binding.tvLetters.text = row.info.letters()
+
             val underlineColor = when (row.underline) {
-                UnderlineState.NONE -> 0x33000000
+                UnderlineState.NONE -> 0x00000000
                 UnderlineState.BLUE -> 0xFF2B6CB0.toInt()
                 UnderlineState.RED -> 0xFFC53030.toInt()
             }
@@ -66,58 +71,76 @@ class DriverRegistryAdapter(
                 focusField()
             }
 
-            binding.etNumber.setOnFocusChangeListener { _, hasFocus ->
-                if (hasFocus) onRowActivated(position)
+            binding.etNumber.setOnClickListener {
+                onRowActivated(position)
+                focusField()
             }
 
             binding.etNumber.setOnEditorActionListener { _, actionId, event ->
-                val isEnter =
+
+                val enterPressed =
                     actionId == EditorInfo.IME_ACTION_DONE ||
-                            actionId == EditorInfo.IME_ACTION_NEXT ||
-                            (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)
+                            (event?.keyCode == KeyEvent.KEYCODE_ENTER &&
+                                    event.action == KeyEvent.ACTION_DOWN)
 
-                if (!isEnter) return@setOnEditorActionListener false
+                if (!enterPressed) return@setOnEditorActionListener false
 
-                val res = onNumberCommitted(position, row.number, binding.etNumber.text?.toString().orEmpty())
-                if (res == CommitResult.ERROR_CLEAR) {
-                    binding.etNumber.setText("")
-                    focusField()
+                val text = binding.etNumber.text?.toString().orEmpty()
+
+                val result = onNumberCommitted(
+                    position,
+                    row.number,
+                    text
+                )
+
+                when (result) {
+                    CommitResult.OK -> {
+                        // новая строка появится, курсор остаётся в текущей
+                    }
+
+                    CommitResult.ERROR_CLEAR -> {
+                        binding.etNumber.setText("")
+                        focusField()
+                    }
                 }
+
                 true
             }
 
             binding.root.setOnLongClickListener {
-                val number = row.number ?: return@setOnLongClickListener true
-                showCategoryMenu(number, binding.root)
+                val num = row.number ?: return@setOnLongClickListener true
+
+                val popup = PopupMenu(binding.root.context, binding.root)
+
+                popup.menu.add("BUS")
+                popup.menu.add("VAN")
+                popup.menu.add("MY_CAR")
+                popup.menu.add("CLEAR")
+
+                popup.setOnMenuItemClickListener { item ->
+                    when (item.title.toString()) {
+                        "BUS" -> onCategoryAction(num, CategoryAction.BUS)
+                        "VAN" -> onCategoryAction(num, CategoryAction.VAN)
+                        "MY_CAR" -> onCategoryAction(num, CategoryAction.MY_CAR)
+                        "CLEAR" -> onCategoryAction(num, CategoryAction.CLEAR)
+                    }
+                    true
+                }
+
+                popup.show()
                 true
             }
         }
 
         fun focusField() {
+            binding.etNumber.isFocusable = true
+            binding.etNumber.isFocusableInTouchMode = true
+            binding.etNumber.isCursorVisible = true
             binding.etNumber.requestFocus()
             binding.etNumber.setSelection(binding.etNumber.text?.length ?: 0)
         }
 
-        fun getEditText(): EditText = binding.etNumber
-
-        private fun showCategoryMenu(number: Int, anchor: View) {
-            val menu = PopupMenu(anchor.context, anchor)
-            menu.menu.add("BUS")
-            menu.menu.add("VAN")
-            menu.menu.add("MY_CAR")
-            menu.menu.add("CLEAR")
-
-            menu.setOnMenuItemClickListener { item ->
-                when (item.title.toString()) {
-                    "BUS" -> onCategoryAction(number, CategoryAction.BUS)
-                    "VAN" -> onCategoryAction(number, CategoryAction.VAN)
-                    "MY_CAR" -> onCategoryAction(number, CategoryAction.MY_CAR)
-                    "CLEAR" -> onCategoryAction(number, CategoryAction.CLEAR)
-                }
-                true
-            }
-            menu.show()
-        }
+        fun getEditText() = binding.etNumber
     }
 }
 
@@ -127,16 +150,13 @@ data class RegistryRow(
     val underline: UnderlineState
 )
 
-enum class UnderlineState { NONE, BLUE, RED }
+enum class UnderlineState {
+    NONE,
+    BLUE,
+    RED
+}
 
-enum class CommitResult { OK, ERROR_CLEAR }
-
-private fun TransportInfo.letters(): String {
-    val sb = StringBuilder()
-    when {
-        transportType.name == "BUS" -> sb.append("B")
-        transportType.name == "VAN" -> sb.append("V")
-    }
-    if (isMyCar) sb.append("M")
-    return if (sb.isEmpty()) "-" else sb.toString()
+enum class CommitResult {
+    OK,
+    ERROR_CLEAR
 }
