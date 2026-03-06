@@ -5,6 +5,8 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.widget.EditText
+import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.RecyclerView
 import com.carlist.pro.databinding.ItemRegistryRowBinding
 import com.carlist.pro.domain.TransportInfo
@@ -27,7 +29,7 @@ class DriverRegistryAdapter(
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         val binding = ItemRegistryRowBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        return VH(binding, ::activate, ::commit, ::openMenu)
+        return VH(binding)
     }
 
     override fun onBindViewHolder(holder: VH, position: Int) {
@@ -40,94 +42,87 @@ class DriverRegistryAdapter(
         return items.size
     }
 
-    private fun activate(pos: Int) = onRowActivated(pos)
-
-    private fun commit(pos: Int, old: Int?, text: String): CommitResult =
-        onNumberCommitted(pos, old, text)
-
-    private fun openMenu(number: Int, anchor: View) {
-        val context = anchor.context
-        val menu = androidx.appcompat.widget.PopupMenu(context, anchor)
-        menu.menu.add("BUS")
-        menu.menu.add("VAN")
-        menu.menu.add("MY_CAR")
-        menu.menu.add("CLEAR")
-        menu.setOnMenuItemClickListener { item ->
-            when (item.title.toString()) {
-                "BUS" -> onCategoryAction(number, CategoryAction.BUS)
-                "VAN" -> onCategoryAction(number, CategoryAction.VAN)
-                "MY_CAR" -> onCategoryAction(number, CategoryAction.MY_CAR)
-                "CLEAR" -> onCategoryAction(number, CategoryAction.CLEAR)
-            }
-            true
-        }
-        menu.show()
-    }
-
-    class VH(
-        private val binding: ItemRegistryRowBinding,
-        private val onActivate: (pos: Int) -> Unit,
-        private val onCommit: (pos: Int, old: Int?, text: String) -> CommitResult,
-        private val onLongPressMenu: (number: Int, anchor: View) -> Unit
-    ) : RecyclerView.ViewHolder(binding.root) {
+    inner class VH(private val binding: ItemRegistryRowBinding) : RecyclerView.ViewHolder(binding.root) {
 
         fun bind(row: RegistryRow, position: Int) {
-            // Letters
+
             binding.tvLetters.text = row.info.letters()
 
-            // Number
-            val asText = row.number?.toString().orEmpty()
-            if (binding.etNumber.text?.toString() != asText) {
-                binding.etNumber.setText(asText)
+            val txt = row.number?.toString().orEmpty()
+            if (binding.etNumber.text?.toString() != txt) {
+                binding.etNumber.setText(txt)
+                binding.etNumber.setSelection(binding.etNumber.text?.length ?: 0)
             }
 
-            // Underline state
-            val color = when (row.underline) {
-                UnderlineState.NONE -> 0x00000000
+            val underlineColor = when (row.underline) {
+                UnderlineState.NONE -> 0x33000000
                 UnderlineState.BLUE -> 0xFF2B6CB0.toInt()
                 UnderlineState.RED -> 0xFFC53030.toInt()
             }
-            binding.underline.setBackgroundColor(color)
+            binding.underline.setBackgroundColor(underlineColor)
 
             binding.root.setOnClickListener {
-                onActivate(position)
+                onRowActivated(position)
+                focusField()
             }
 
-            // Commit on Enter/Done
+            binding.etNumber.setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) onRowActivated(position)
+            }
+
             binding.etNumber.setOnEditorActionListener { _, actionId, event ->
                 val isEnter =
                     actionId == EditorInfo.IME_ACTION_DONE ||
+                            actionId == EditorInfo.IME_ACTION_NEXT ||
                             (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)
 
                 if (!isEnter) return@setOnEditorActionListener false
 
-                val res = onCommit(position, row.number, binding.etNumber.text?.toString().orEmpty())
-                applyCommitResult(res)
+                val res = onNumberCommitted(position, row.number, binding.etNumber.text?.toString().orEmpty())
+                if (res == CommitResult.ERROR_CLEAR) {
+                    binding.etNumber.setText("")
+                    focusField()
+                }
                 true
             }
 
-            // Long press -> category menu (only if number exists)
             binding.root.setOnLongClickListener {
-                val num = row.number ?: return@setOnLongClickListener true
-                onLongPressMenu(num, binding.root)
+                val number = row.number ?: return@setOnLongClickListener true
+                showCategoryMenu(number, binding.root)
                 true
             }
         }
 
-        private fun applyCommitResult(res: CommitResult) {
-            when (res) {
-                CommitResult.OK -> { /* UI обновится через tick */ }
-                CommitResult.ERROR_CLEAR -> {
-                    binding.etNumber.setText("")
+        fun focusField() {
+            binding.etNumber.requestFocus()
+            binding.etNumber.setSelection(binding.etNumber.text?.length ?: 0)
+        }
+
+        fun getEditText(): EditText = binding.etNumber
+
+        private fun showCategoryMenu(number: Int, anchor: View) {
+            val menu = PopupMenu(anchor.context, anchor)
+            menu.menu.add("BUS")
+            menu.menu.add("VAN")
+            menu.menu.add("MY_CAR")
+            menu.menu.add("CLEAR")
+
+            menu.setOnMenuItemClickListener { item ->
+                when (item.title.toString()) {
+                    "BUS" -> onCategoryAction(number, CategoryAction.BUS)
+                    "VAN" -> onCategoryAction(number, CategoryAction.VAN)
+                    "MY_CAR" -> onCategoryAction(number, CategoryAction.MY_CAR)
+                    "CLEAR" -> onCategoryAction(number, CategoryAction.CLEAR)
                 }
+                true
             }
+            menu.show()
         }
     }
 }
 
-/** Row model for adapter */
 data class RegistryRow(
-    val number: Int?,              // null = empty new row
+    val number: Int?,
     val info: TransportInfo,
     val underline: UnderlineState
 )
@@ -135,3 +130,13 @@ data class RegistryRow(
 enum class UnderlineState { NONE, BLUE, RED }
 
 enum class CommitResult { OK, ERROR_CLEAR }
+
+private fun TransportInfo.letters(): String {
+    val sb = StringBuilder()
+    when {
+        transportType.name == "BUS" -> sb.append("B")
+        transportType.name == "VAN" -> sb.append("V")
+    }
+    if (isMyCar) sb.append("M")
+    return if (sb.isEmpty()) "-" else sb.toString()
+}

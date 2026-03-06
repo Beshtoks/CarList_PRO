@@ -3,27 +3,56 @@ package com.carlist.pro.ui
 import android.app.Dialog
 import android.content.DialogInterface
 import android.os.Bundle
+import android.view.Gravity
+import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
-import android.widget.EditText
+import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.DialogFragment
-import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.carlist.pro.databinding.DialogDriverRegistryBinding
+import kotlin.math.roundToInt
 
 class DriverRegistryDialogFragment : DialogFragment() {
 
-    override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
-        // Твой текущий UI техменю остаётся как есть (я его не перестраиваю тут).
-        // Важно сейчас только: фокус и IME должны принадлежать диалогу.
+    private var _binding: DialogDriverRegistryBinding? = null
+    private val binding get() = _binding!!
 
-        val dialog = MaterialAlertDialogBuilder(requireContext())
-            .setTitle("TECHNICAL MENU")
-            .setView(RecyclerView(requireContext()))
-            .setPositiveButton("OK") { _, _ -> dismissAllowingStateLoss() }
+    private lateinit var adapter: DriverRegistryAdapter
+
+    override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
+        _binding = DialogDriverRegistryBinding.inflate(LayoutInflater.from(requireContext()))
+
+        val main = activity as MainActivity
+        val viewModel = main.getMainViewModel()
+
+        adapter = DriverRegistryAdapter(
+            getItems = { viewModel.getRegistryRows() },
+            onRowActivated = { pos -> viewModel.setRegistryActiveRow(pos) },
+            onNumberCommitted = { pos, old, txt -> viewModel.commitRegistryNumber(pos, old, txt) },
+            onCategoryAction = { number, action ->
+                // если у тебя в VM уже есть обработчик категорий — оставляем как есть.
+                // (Адаптер сам отдаёт action, VM решает что делать)
+                viewModel.onRegistryCategoryAction(number, action)
+            }
+        )
+
+        binding.registryRecycler.layoutManager = LinearLayoutManager(requireContext())
+        binding.registryRecycler.adapter = adapter
+
+        binding.btnOk.setOnClickListener { dismissAllowingStateLoss() }
+
+        // перерисовка меню при любых изменениях реестра/категорий
+        viewModel.registryUiTick.observe(this) { adapter.refresh() }
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setView(binding.root)
             .create()
 
-        // Раз ты хочешь, чтобы меню "лезло под клавиатуру" — оставляем NOTHNG.
+        dialog.setCanceledOnTouchOutside(true)
+
+        // Важно: меню НЕ ресайзится под клавиатуру — клавиатура перекрывает низ (как ты и просил).
         dialog.window?.setSoftInputMode(
             WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or
                     WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
@@ -35,41 +64,39 @@ class DriverRegistryDialogFragment : DialogFragment() {
     override fun onStart() {
         super.onStart()
 
-        // КЛЮЧ: принудительно отдаём фокус первому EditText внутри диалога, если он есть,
-        // и просим IME открыться уже для него.
-        dialog?.window?.decorView?.post {
+        dialog?.window?.let { w ->
+            // Уже и пониже.
+            val width = (resources.displayMetrics.widthPixels * 0.84f).roundToInt()
+            w.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
 
-            val firstEdit = dialog?.window?.decorView?.findViewById<EditText>(android.R.id.edit)
-            // (Если у тебя EditText не android.R.id.edit — ниже есть универсальный поиск)
-            val target = firstEdit ?: findFirstEditText(dialog?.window?.decorView)
+            w.attributes = w.attributes.apply {
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                y = dp(24)
+            }
+        }
 
-            target?.let { et ->
-                et.requestFocus()
-                val imm = requireContext().getSystemService(InputMethodManager::class.java)
+        // КЛЮЧ: отдаём фокус EditText внутри диалога, чтобы ввод НЕ улетал в главное табло.
+        binding.registryRecycler.post {
+            adapter.refresh()
+            val holder = binding.registryRecycler.findViewHolderForAdapterPosition(0) as? DriverRegistryAdapter.VH
+            holder?.focusField()
+
+            val imm = requireContext().getSystemService(InputMethodManager::class.java)
+            holder?.getEditText()?.let { et ->
                 imm.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT)
             }
         }
-
-        dialog?.window?.setLayout(
-            (resources.displayMetrics.widthPixels * 0.92f).toInt(),
-            (resources.displayMetrics.heightPixels * 0.72f).toInt()
-        )
-    }
-
-    private fun findFirstEditText(root: android.view.View?): EditText? {
-        if (root == null) return null
-        if (root is EditText) return root
-        if (root is ViewGroup) {
-            for (i in 0 until root.childCount) {
-                val found = findFirstEditText(root.getChildAt(i))
-                if (found != null) return found
-            }
-        }
-        return null
     }
 
     override fun onDismiss(dialog: DialogInterface) {
         super.onDismiss(dialog)
         (activity as? MainActivity)?.onTechnicalMenuClosed()
     }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
+    }
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).roundToInt()
 }
