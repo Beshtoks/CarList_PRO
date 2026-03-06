@@ -51,6 +51,13 @@ class MainActivity : AppCompatActivity() {
     private var longPressTriggered = false
     private var longPressRunnable: Runnable? = null
 
+    private val techTapTimeoutRunnable = Runnable {
+        if (techTapCount > 0 || techCountdownActive) {
+            resetTechTapSequence()
+            applyInputVisualState(imeVisibleNow)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
 
         WindowCompat.setDecorFitsSystemWindows(window, true)
@@ -86,7 +93,6 @@ class MainActivity : AppCompatActivity() {
             updateMyCarCounter(list)
 
             if (!isDragging) {
-
                 adapter.submitItems(list)
 
                 if (!isTechMenuOpen && imeVisibleNow && list.isNotEmpty()) {
@@ -150,7 +156,9 @@ class MainActivity : AppCompatActivity() {
             when (ev.actionMasked) {
 
                 MotionEvent.ACTION_DOWN -> {
-                    if (isInsideInputPanel(ev.rawX, ev.rawY)) {
+                    val insideInputPanel = isInsideInputPanel(ev.rawX, ev.rawY)
+
+                    if (insideInputPanel) {
                         inputPanelTouchActive = true
                         longPressTriggered = false
 
@@ -164,6 +172,11 @@ class MainActivity : AppCompatActivity() {
 
                         gestureHandler.postDelayed(longPressRunnable!!, longPressTimeoutMs)
                     } else {
+                        // Любое другое касание экрана во время серии 5 тапов — сброс
+                        if (techTapCount > 0 || techCountdownActive) {
+                            resetTechTapSequence()
+                            applyInputVisualState(imeVisibleNow)
+                        }
                         inputPanelTouchActive = false
                     }
                 }
@@ -176,6 +189,9 @@ class MainActivity : AppCompatActivity() {
 
                         if (releasedInside && !longPressTriggered) {
                             handleTechTaps()
+                        } else if (!releasedInside && (techTapCount > 0 || techCountdownActive)) {
+                            resetTechTapSequence()
+                            applyInputVisualState(imeVisibleNow)
                         }
 
                         inputPanelTouchActive = false
@@ -197,8 +213,7 @@ class MainActivity : AppCompatActivity() {
 
     fun onTechnicalMenuClosed() {
         isTechMenuOpen = false
-        techTapCount = 0
-        techCountdownActive = false
+        resetTechTapSequence()
         applyInputVisualState(imeVisibleNow)
     }
 
@@ -211,7 +226,7 @@ class MainActivity : AppCompatActivity() {
         binding.numberInput.isFocusableInTouchMode = false
         binding.numberInput.isCursorVisible = false
 
-        // Обычный longClickListener больше не используем — long press обрабатывается вручную
+        // Long press обрабатывается вручную через dispatchTouchEvent
         binding.inputPanel.setOnLongClickListener { true }
 
         binding.numberInput.setOnClickListener(null)
@@ -248,11 +263,15 @@ class MainActivity : AppCompatActivity() {
         if (techTapCount == 0) {
             techFirstTapAtMs = now
         } else if (now - techFirstTapAtMs > 5000) {
-            techTapCount = 0
+            resetTechTapSequence()
             techFirstTapAtMs = now
         }
 
         techTapCount++
+
+        // После каждого корректного короткого тапа перезапускаем таймер окна
+        gestureHandler.removeCallbacks(techTapTimeoutRunnable)
+        gestureHandler.postDelayed(techTapTimeoutRunnable, 5000L)
 
         when (techTapCount) {
 
@@ -269,6 +288,7 @@ class MainActivity : AppCompatActivity() {
             4 -> binding.inputHint.text = "1"
 
             5 -> {
+                gestureHandler.removeCallbacks(techTapTimeoutRunnable)
                 binding.inputHint.text = "OPEN"
                 techTapCount = 0
                 techCountdownActive = false
@@ -278,6 +298,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun resetTechTapSequence() {
+        gestureHandler.removeCallbacks(techTapTimeoutRunnable)
         techTapCount = 0
         techFirstTapAtMs = 0L
         techCountdownActive = false
@@ -288,6 +309,7 @@ class MainActivity : AppCompatActivity() {
         isTechMenuOpen = true
 
         lockManualInput()
+        resetTechTapSequence()
 
         val imm = getSystemService(InputMethodManager::class.java)
         imm.hideSoftInputFromWindow(binding.numberInput.windowToken, 0)
@@ -444,6 +466,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         longPressRunnable?.let { gestureHandler.removeCallbacks(it) }
+        gestureHandler.removeCallbacks(techTapTimeoutRunnable)
         super.onDestroy()
         feedback.release()
     }
