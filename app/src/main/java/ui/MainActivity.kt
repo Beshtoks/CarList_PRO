@@ -3,7 +3,13 @@ package com.carlist.pro.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.os.Bundle
-import android.view.*
+import android.os.Handler
+import android.os.Looper
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewConfiguration
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import androidx.appcompat.app.AppCompatActivity
@@ -36,6 +42,14 @@ class MainActivity : AppCompatActivity() {
     private var techCountdownActive = false
 
     private var isTechMenuOpen = false
+    private var isManualInputMode = false
+
+    // Жесты левого табло
+    private val gestureHandler = Handler(Looper.getMainLooper())
+    private val longPressTimeoutMs = ViewConfiguration.getLongPressTimeout().toLong()
+    private var inputPanelTouchActive = false
+    private var longPressTriggered = false
+    private var longPressRunnable: Runnable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
 
@@ -62,6 +76,7 @@ class MainActivity : AppCompatActivity() {
         binding.queueRecycler.layoutManager = layoutManager
         binding.queueRecycler.adapter = adapter
 
+        setupInputPanel()
         setupButtons()
         setupImeHandling()
 
@@ -95,6 +110,7 @@ class MainActivity : AppCompatActivity() {
             if (!isEnter) return@setOnEditorActionListener false
 
             if (isTechMenuOpen) return@setOnEditorActionListener true
+            if (!isManualInputMode) return@setOnEditorActionListener true
 
             handleManualSubmit()
             true
@@ -124,26 +140,53 @@ class MainActivity : AppCompatActivity() {
             ViewCompat.requestApplyInsets(window.decorView)
         }
 
+        lockManualInput()
         applyInputVisualState(false)
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
 
-        if (!isTechMenuOpen && ev.action == MotionEvent.ACTION_DOWN) {
+        if (!isTechMenuOpen) {
+            when (ev.actionMasked) {
 
-            val location = IntArray(2)
-            binding.inputPanel.getLocationOnScreen(location)
+                MotionEvent.ACTION_DOWN -> {
+                    if (isInsideInputPanel(ev.rawX, ev.rawY)) {
+                        inputPanelTouchActive = true
+                        longPressTriggered = false
 
-            val x = ev.rawX
-            val y = ev.rawY
+                        longPressRunnable = Runnable {
+                            if (!inputPanelTouchActive || isTechMenuOpen) return@Runnable
 
-            val left = location[0]
-            val top = location[1]
-            val right = left + binding.inputPanel.width
-            val bottom = top + binding.inputPanel.height
+                            longPressTriggered = true
+                            resetTechTapSequence()
+                            startManualInputMode()
+                        }
 
-            if (x >= left && x <= right && y >= top && y <= bottom) {
-                handleTechTaps()
+                        gestureHandler.postDelayed(longPressRunnable!!, longPressTimeoutMs)
+                    } else {
+                        inputPanelTouchActive = false
+                    }
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    if (inputPanelTouchActive) {
+                        longPressRunnable?.let { gestureHandler.removeCallbacks(it) }
+
+                        val releasedInside = isInsideInputPanel(ev.rawX, ev.rawY)
+
+                        if (releasedInside && !longPressTriggered) {
+                            handleTechTaps()
+                        }
+
+                        inputPanelTouchActive = false
+                    }
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    longPressRunnable?.let { gestureHandler.removeCallbacks(it) }
+                    inputPanelTouchActive = false
+                    longPressTriggered = false
+                }
             }
         }
 
@@ -157,6 +200,45 @@ class MainActivity : AppCompatActivity() {
         techTapCount = 0
         techCountdownActive = false
         applyInputVisualState(imeVisibleNow)
+    }
+
+    private fun setupInputPanel() {
+
+        binding.numberInput.isLongClickable = false
+        binding.numberInput.setTextIsSelectable(false)
+        binding.numberInput.isClickable = false
+        binding.numberInput.isFocusable = false
+        binding.numberInput.isFocusableInTouchMode = false
+        binding.numberInput.isCursorVisible = false
+
+        // Обычный longClickListener больше не используем — long press обрабатывается вручную
+        binding.inputPanel.setOnLongClickListener { true }
+
+        binding.numberInput.setOnClickListener(null)
+        binding.numberInput.setOnLongClickListener { true }
+    }
+
+    private fun startManualInputMode() {
+        isManualInputMode = true
+
+        binding.numberInput.isFocusable = true
+        binding.numberInput.isFocusableInTouchMode = true
+        binding.numberInput.isCursorVisible = true
+        binding.numberInput.requestFocus()
+        binding.numberInput.setSelection(binding.numberInput.text?.length ?: 0)
+
+        val imm = getSystemService(InputMethodManager::class.java)
+        imm.showSoftInput(binding.numberInput, InputMethodManager.SHOW_IMPLICIT)
+
+        applyInputVisualState(true)
+    }
+
+    private fun lockManualInput() {
+        isManualInputMode = false
+        binding.numberInput.clearFocus()
+        binding.numberInput.isFocusable = false
+        binding.numberInput.isFocusableInTouchMode = false
+        binding.numberInput.isCursorVisible = false
     }
 
     private fun handleTechTaps() {
@@ -195,12 +277,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun resetTechTapSequence() {
+        techTapCount = 0
+        techFirstTapAtMs = 0L
+        techCountdownActive = false
+    }
+
     private fun openTechnicalMenu() {
 
         isTechMenuOpen = true
 
-        binding.numberInput.clearFocus()
-        binding.numberInput.isCursorVisible = false
+        lockManualInput()
 
         val imm = getSystemService(InputMethodManager::class.java)
         imm.hideSoftInputFromWindow(binding.numberInput.windowToken, 0)
@@ -219,13 +306,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        if (imeVisible) {
+        if (imeVisible && isManualInputMode) {
             binding.inputHint.visibility = View.INVISIBLE
             binding.numberInput.isCursorVisible = true
         } else {
             binding.inputHint.visibility = View.VISIBLE
             binding.numberInput.isCursorVisible = false
-            binding.numberInput.clearFocus()
             binding.inputHint.text = "Nr / 🛠 / 🔊"
         }
     }
@@ -323,6 +409,10 @@ class MainActivity : AppCompatActivity() {
 
             imeVisibleNow = insets.isVisible(WindowInsetsCompat.Type.ime())
 
+            if (!imeVisibleNow) {
+                lockManualInput()
+            }
+
             applyInputVisualState(imeVisibleNow)
 
             if (!isTechMenuOpen) {
@@ -340,7 +430,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun isInsideInputPanel(rawX: Float, rawY: Float): Boolean {
+        val location = IntArray(2)
+        binding.inputPanel.getLocationOnScreen(location)
+
+        val left = location[0]
+        val top = location[1]
+        val right = left + binding.inputPanel.width
+        val bottom = top + binding.inputPanel.height
+
+        return rawX >= left && rawX <= right && rawY >= top && rawY <= bottom
+    }
+
     override fun onDestroy() {
+        longPressRunnable?.let { gestureHandler.removeCallbacks(it) }
         super.onDestroy()
         feedback.release()
     }
