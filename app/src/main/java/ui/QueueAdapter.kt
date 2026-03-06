@@ -13,7 +13,8 @@ import com.carlist.pro.domain.TransportInfo
 import com.carlist.pro.domain.TransportType
 
 class QueueAdapter(
-    private val transportInfoProvider: ((Int) -> TransportInfo)? = null
+    private val transportInfoProvider: ((Int) -> TransportInfo)? = null,
+    private val onCardShortTap: ((item: QueueItem, anchor: View) -> Unit)? = null
 ) : RecyclerView.Adapter<QueueAdapter.VH>() {
 
     private val items: MutableList<QueueItem> = mutableListOf()
@@ -44,7 +45,7 @@ class QueueAdapter(
     }
 
     override fun onBindViewHolder(holder: VH, position: Int) {
-        holder.bind(items[position], transportInfoProvider)
+        holder.bind(items[position], transportInfoProvider, onCardShortTap)
     }
 
     override fun getItemCount(): Int = items.size
@@ -55,7 +56,8 @@ class QueueAdapter(
 
         fun bind(
             item: QueueItem,
-            infoProvider: ((Int) -> TransportInfo)?
+            infoProvider: ((Int) -> TransportInfo)?,
+            onCardShortTap: ((item: QueueItem, anchor: View) -> Unit)?
         ) {
             binding.numberText.text = item.number.toString()
 
@@ -93,6 +95,10 @@ class QueueAdapter(
                 binding.cardRoot.strokeColor = 0xFFFFB300.toInt()
             } else {
                 binding.cardRoot.strokeWidth = 0
+            }
+
+            binding.cardRoot.setOnClickListener {
+                onCardShortTap?.invoke(item, binding.cardRoot)
             }
         }
 

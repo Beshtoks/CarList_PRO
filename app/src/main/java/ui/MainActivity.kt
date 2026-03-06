@@ -13,6 +13,7 @@ import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.PopupMenu
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -23,6 +24,7 @@ import com.carlist.pro.databinding.ActivityMainBinding
 import com.carlist.pro.domain.QueueItem
 import com.carlist.pro.domain.QueueManager
 import com.carlist.pro.domain.Status
+import com.carlist.pro.domain.TransportType
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class MainActivity : AppCompatActivity() {
@@ -76,7 +78,10 @@ class MainActivity : AppCompatActivity() {
         feedback = SystemFeedback(this)
 
         adapter = QueueAdapter(
-            transportInfoProvider = { number -> viewModel.getTransportInfo(number) }
+            transportInfoProvider = { number -> viewModel.getTransportInfo(number) },
+            onCardShortTap = { item, anchor ->
+                showStatusMenu(anchor, item)
+            }
         )
 
         layoutManager = LinearLayoutManager(this)
@@ -172,7 +177,6 @@ class MainActivity : AppCompatActivity() {
 
                         gestureHandler.postDelayed(longPressRunnable!!, longPressTimeoutMs)
                     } else {
-                        // Любое другое касание экрана во время серии 5 тапов — сброс
                         if (techTapCount > 0 || techCountdownActive) {
                             resetTechTapSequence()
                             applyInputVisualState(imeVisibleNow)
@@ -269,7 +273,6 @@ class MainActivity : AppCompatActivity() {
 
         techTapCount++
 
-        // После каждого корректного короткого тапа перезапускаем таймер окна
         gestureHandler.removeCallbacks(techTapTimeoutRunnable)
         gestureHandler.postDelayed(techTapTimeoutRunnable, 5000L)
 
@@ -316,6 +319,25 @@ class MainActivity : AppCompatActivity() {
 
         DriverRegistryDialogFragment()
             .show(supportFragmentManager, "DriverRegistryDialog")
+    }
+
+    private fun showStatusMenu(anchor: View, item: QueueItem) {
+        val popup = PopupMenu(this, anchor)
+
+        popup.menu.add("STANDARD")
+        popup.menu.add("SERVICE")
+        popup.menu.add("JURNIEKS")
+
+        popup.setOnMenuItemClickListener { menuItem ->
+            when (menuItem.title.toString()) {
+                "STANDARD" -> viewModel.setStatus(item.number, Status.NONE)
+                "SERVICE" -> viewModel.setStatus(item.number, Status.SERVICE)
+                "JURNIEKS" -> viewModel.setStatus(item.number, Status.JURNIEKS)
+            }
+            true
+        }
+
+        popup.show()
     }
 
     private fun applyInputVisualState(imeVisible: Boolean) {
@@ -401,17 +423,47 @@ class MainActivity : AppCompatActivity() {
 
     private fun buildQueueText(list: List<QueueItem>): String {
         if (list.isEmpty()) return ""
+
         val sb = StringBuilder()
+
         list.forEachIndexed { index, item ->
             val lineIndex = index + 1
             sb.append(lineIndex).append(". ").append(item.number)
+
+            val info = viewModel.getTransportInfo(item.number)
+            val categoryLetters = buildCategoryLetters(info.transportType, info.isMyCar)
+            if (categoryLetters.isNotEmpty()) {
+                sb.append(" (").append(categoryLetters).append(")")
+            }
+
             when (item.status) {
                 Status.SERVICE -> sb.append(" SERVICE")
                 Status.JURNIEKS -> sb.append(" JURNIEKS")
                 Status.NONE -> {}
             }
+
             if (index != list.lastIndex) sb.append('\n')
         }
+
+        return sb.toString()
+    }
+
+    private fun buildCategoryLetters(
+        transportType: TransportType,
+        isMyCar: Boolean
+    ): String {
+        val sb = StringBuilder()
+
+        when (transportType) {
+            TransportType.BUS -> sb.append("B")
+            TransportType.VAN -> sb.append("V")
+            TransportType.NONE -> {}
+        }
+
+        if (isMyCar) {
+            sb.append("M")
+        }
+
         return sb.toString()
     }
 

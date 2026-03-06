@@ -107,8 +107,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setRegistryActiveRow(pos: Int) {
         activeRowIndex = pos.coerceAtLeast(0)
         lastCommitFailedRow = null
-        tickRegistry()
+        // ВАЖНО:
+        // тут специально НЕ вызываем tickRegistry(),
+        // чтобы простой тап по строке не перерисовывал весь RecyclerView
+        // и не сбрасывал только что поставленный курсор.
     }
+
+    fun getRegistryActiveRow(): Int = activeRowIndex
 
     fun commitRegistryNumber(position: Int, oldNumber: Int?, newText: String): CommitResult {
         val trimmed = newText.trim()

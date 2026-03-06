@@ -11,54 +11,74 @@ class DriverRegistryStore(context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     fun getAllowedNumbers(): List<Int> {
-        val raw = prefs.getStringSet(KEY_NUMBERS, emptySet()).orEmpty()
-        val nums = raw.mapNotNull { it.toIntOrNull() }.filter { it in 1..99 }.distinct()
-        return nums.sorted()
+        return readNumbers()
     }
 
     fun isAllowed(number: Int): Boolean {
         if (number !in 1..99) return false
-        val raw = prefs.getStringSet(KEY_NUMBERS, emptySet()).orEmpty()
-        return raw.contains(number.toString())
+        return readNumbers().contains(number)
     }
 
     /**
-     * Sets / replaces a number in registry.
-     * If oldNumber is null -> add new.
+     * If oldNumber is null -> append new number to the end.
+     * If oldNumber exists -> replace it in the same position.
      */
     fun upsertNumber(oldNumber: Int?, newNumber: Int): Result<Unit> {
-        if (newNumber !in 1..99) return Result.failure(IllegalArgumentException("Invalid number"))
-        val current = getAllowedNumbers().toMutableList()
+        if (newNumber !in 1..99) {
+            return Result.failure(IllegalArgumentException("Invalid number"))
+        }
+
+        val current = readNumbers().toMutableList()
 
         if (current.contains(newNumber) && newNumber != oldNumber) {
             return Result.failure(IllegalStateException("Duplicate number"))
         }
 
-        if (oldNumber != null) {
-            current.remove(oldNumber)
-            // keep categories when number is changed? safer: migrate categories
-            val oldInfo = getInfo(oldNumber)
-            clearCategories(oldNumber)
-            setInfo(newNumber, oldInfo)
+        if (oldNumber == null) {
+            if (!current.contains(newNumber)) {
+                current.add(newNumber)
+            }
+            saveNumbers(current)
+            return Result.success(Unit)
         }
 
-        if (!current.contains(newNumber)) current.add(newNumber)
+        val oldIndex = current.indexOf(oldNumber)
+        if (oldIndex == -1) {
+            return Result.failure(IllegalStateException("Old number not found"))
+        }
 
+        val oldInfo = getInfo(oldNumber)
+        clearCategories(oldNumber)
+
+        current[oldIndex] = newNumber
         saveNumbers(current)
+        setInfo(newNumber, oldInfo)
+
         return Result.success(Unit)
     }
 
     fun removeNumber(number: Int) {
-        val current = getAllowedNumbers().toMutableList()
-        current.remove(number)
-        saveNumbers(current)
+        val current = readNumbers().toMutableList()
+        val index = current.indexOf(number)
+        if (index != -1) {
+            current.removeAt(index)
+            saveNumbers(current)
+        }
         clearCategories(number)
     }
 
     fun getInfo(number: Int): TransportInfo {
-        val typeRaw = prefs.getString(keyType(number), TransportType.NONE.name) ?: TransportType.NONE.name
-        val type = runCatching { TransportType.valueOf(typeRaw) }.getOrDefault(TransportType.NONE)
+        val typeRaw = prefs.getString(
+            keyType(number),
+            TransportType.NONE.name
+        ) ?: TransportType.NONE.name
+
+        val type = runCatching {
+            TransportType.valueOf(typeRaw)
+        }.getOrDefault(TransportType.NONE)
+
         val my = prefs.getBoolean(keyMyCar(number), false)
+
         return TransportInfo(type, my)
     }
 
@@ -70,12 +90,16 @@ class DriverRegistryStore(context: Context) {
     }
 
     fun setTransportType(number: Int, type: TransportType) {
-        prefs.edit().putString(keyType(number), type.name).apply()
+        prefs.edit()
+            .putString(keyType(number), type.name)
+            .apply()
     }
 
     fun toggleMyCar(number: Int) {
         val now = prefs.getBoolean(keyMyCar(number), false)
-        prefs.edit().putBoolean(keyMyCar(number), !now).apply()
+        prefs.edit()
+            .putBoolean(keyMyCar(number), !now)
+            .apply()
     }
 
     fun clearCategories(number: Int) {
@@ -85,9 +109,25 @@ class DriverRegistryStore(context: Context) {
             .apply()
     }
 
+    private fun readNumbers(): List<Int> {
+        val raw = prefs.getString(KEY_NUMBERS_ORDERED, "").orEmpty()
+        if (raw.isBlank()) return emptyList()
+
+        return raw.split(",")
+            .mapNotNull { it.trim().toIntOrNull() }
+            .filter { it in 1..99 }
+            .distinct()
+    }
+
     private fun saveNumbers(numbers: List<Int>) {
-        val set = numbers.map { it.toString() }.toSet()
-        prefs.edit().putStringSet(KEY_NUMBERS, set).apply()
+        val normalized = numbers
+            .filter { it in 1..99 }
+            .distinct()
+            .joinToString(",")
+
+        prefs.edit()
+            .putString(KEY_NUMBERS_ORDERED, normalized)
+            .apply()
     }
 
     private fun keyType(number: Int) = "type_$number"
@@ -95,6 +135,6 @@ class DriverRegistryStore(context: Context) {
 
     companion object {
         private const val PREFS_NAME = "driver_registry_store"
-        private const val KEY_NUMBERS = "allowed_numbers"
+        private const val KEY_NUMBERS_ORDERED = "allowed_numbers_ordered"
     }
 }

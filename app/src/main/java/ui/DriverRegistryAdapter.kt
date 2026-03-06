@@ -1,10 +1,12 @@
 package com.carlist.pro.ui
 
+import android.content.Context
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.RecyclerView
 import com.carlist.pro.databinding.ItemRegistryRowBinding
@@ -66,24 +68,41 @@ class DriverRegistryAdapter(
             }
             binding.underline.setBackgroundColor(underlineColor)
 
+            binding.etNumber.imeOptions = EditorInfo.IME_ACTION_DONE
+            binding.etNumber.setSingleLine(true)
+
             binding.root.setOnClickListener {
                 onRowActivated(position)
                 focusField()
+                showKeyboard()
             }
 
             binding.etNumber.setOnClickListener {
                 onRowActivated(position)
                 focusField()
+                showKeyboard()
+            }
+
+            binding.etNumber.setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) {
+                    onRowActivated(position)
+                    showKeyboard()
+                }
             }
 
             binding.etNumber.setOnEditorActionListener { _, actionId, event ->
 
                 val enterPressed =
-                    actionId == EditorInfo.IME_ACTION_DONE ||
-                            (event?.keyCode == KeyEvent.KEYCODE_ENTER &&
-                                    event.action == KeyEvent.ACTION_DOWN)
+                    event?.keyCode == KeyEvent.KEYCODE_ENTER &&
+                            event.action == KeyEvent.ACTION_DOWN
 
-                if (!enterPressed) return@setOnEditorActionListener false
+                val imeCommit =
+                    actionId == EditorInfo.IME_ACTION_DONE ||
+                            actionId == EditorInfo.IME_ACTION_NEXT
+
+                if (!enterPressed && !imeCommit) {
+                    return@setOnEditorActionListener false
+                }
 
                 val text = binding.etNumber.text?.toString().orEmpty()
 
@@ -95,12 +114,13 @@ class DriverRegistryAdapter(
 
                 when (result) {
                     CommitResult.OK -> {
-                        // новая строка появится, курсор остаётся в текущей
+                        // UI обновится через registryUiTick
                     }
 
                     CommitResult.ERROR_CLEAR -> {
                         binding.etNumber.setText("")
                         focusField()
+                        showKeyboard()
                     }
                 }
 
@@ -141,6 +161,14 @@ class DriverRegistryAdapter(
         }
 
         fun getEditText() = binding.etNumber
+
+        private fun showKeyboard() {
+            binding.etNumber.post {
+                val imm = binding.etNumber.context
+                    .getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.showSoftInput(binding.etNumber, InputMethodManager.SHOW_IMPLICIT)
+            }
+        }
     }
 }
 
