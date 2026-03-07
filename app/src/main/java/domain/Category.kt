@@ -1,8 +1,10 @@
 package com.carlist.pro.domain
 
 /**
- * Category here is only a simple placeholder model for now.
- * Real persistence and MY_CAR flag will be handled later by TransportStore in data/.
+ * Legacy placeholder category model.
+ *
+ * Real persistent transport data is handled through DriverRegistryStore
+ * and TransportInfo/TransportType.
  */
 enum class Category {
     NONE,

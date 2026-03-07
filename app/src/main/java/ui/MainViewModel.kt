@@ -44,6 +44,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return res
     }
 
+    fun removeByNumber(number: Int): QueueManager.OperationResult {
+        val res = queueManager.removeByNumber(number)
+        publishSnapshot()
+        return res
+    }
+
     fun setStatus(number: Int, status: Status): QueueManager.OperationResult {
         val res = queueManager.setStatus(number, status)
         publishSnapshot()
@@ -62,6 +68,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun commitDrag() {
         publishSnapshot()
+    }
+
+    fun validateQueueAgainstRegistry(): QueueManager.ValidationResult {
+        val result = queueManager.validateAgainstRegistry { registryStore.isAllowed(it) }
+        publishSnapshot()
+        return result
     }
 
     fun getTransportInfo(number: Int): TransportInfo {
@@ -92,7 +104,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
 
-        val underlineNew = if (numbers.size == activeRowIndex) UnderlineState.BLUE else UnderlineState.NONE
+        val underlineNew = if (numbers.size == activeRowIndex) {
+            UnderlineState.BLUE
+        } else {
+            UnderlineState.NONE
+        }
+
         rows.add(
             RegistryRow(
                 number = null,
@@ -140,11 +157,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             return CommitResult.ERROR_CLEAR
         }
 
+        if (oldNumber != null && oldNumber != newNumber) {
+            queueManager.replaceNumber(
+                oldNumber = oldNumber,
+                newNumber = newNumber,
+                isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
+            )
+            publishSnapshot()
+        }
+
         lastCommitFailedRow = null
         activeRowIndex = (position + 1).coerceAtLeast(0)
 
         tickRegistry()
         return CommitResult.OK
+    }
+
+    fun replaceRegistryNumber(oldNumber: Int, newNumber: Int): Result<Unit> {
+        val res = registryStore.replaceNumber(oldNumber, newNumber)
+        if (res.isFailure) return res
+
+        queueManager.replaceNumber(
+            oldNumber = oldNumber,
+            newNumber = newNumber,
+            isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
+        )
+
+        publishSnapshot()
+        tickRegistry()
+        return Result.success(Unit)
     }
 
     fun sortRegistryNumbersForClose() {

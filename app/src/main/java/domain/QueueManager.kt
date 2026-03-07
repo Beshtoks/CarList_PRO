@@ -11,7 +11,7 @@ package com.carlist.pro.domain
  * ACTIVE  = status != SERVICE
  *
  * Auto-fix must run after any mutation:
- * add, remove, move, status change.
+ * add, remove, move, status change, replace, restore, validation cleanup.
  */
 class QueueManager {
 
@@ -27,7 +27,15 @@ class QueueManager {
         data object InvalidIndex : OperationResult()
         data object NumberNotFound : OperationResult()
         data object InvalidMove : OperationResult()
+        data object DuplicateInQueue : OperationResult()
+        data object InvalidNumber : OperationResult()
+        data object NotInRegistry : OperationResult()
     }
+
+    data class ValidationResult(
+        val removedNumbers: List<Int>,
+        val finalSize: Int
+    )
 
     private val items: MutableList<QueueItem> = mutableListOf()
 
@@ -97,9 +105,7 @@ class QueueManager {
 
         items.removeAt(from)
 
-        // Вставляем прямо в целевую позицию
         val safeTarget = target.coerceIn(0, items.size)
-
         items.add(safeTarget, moving)
 
         autoFixPosition0()
@@ -126,6 +132,108 @@ class QueueManager {
         return OperationResult.Success
     }
 
+    /**
+     * Safely replaces one queue number with another while preserving:
+     * - queue position
+     * - item status
+     *
+     * Rules:
+     * - oldNumber must exist in queue
+     * - newNumber must be in 1..99
+     * - newNumber must not already exist in queue
+     * - if registry validator is provided, newNumber must be allowed there
+     */
+    fun replaceNumber(
+        oldNumber: Int,
+        newNumber: Int,
+        isNumberAllowedByRegistry: ((Int) -> Boolean)? = null
+    ): OperationResult {
+
+        if (newNumber !in 1..99) return OperationResult.InvalidNumber
+
+        val oldIndex = items.indexOfFirst { it.number == oldNumber }
+        if (oldIndex == -1) return OperationResult.NumberNotFound
+
+        val duplicateIndex = items.indexOfFirst { it.number == newNumber }
+        if (duplicateIndex != -1 && duplicateIndex != oldIndex) {
+            return OperationResult.DuplicateInQueue
+        }
+
+        if (isNumberAllowedByRegistry != null && !isNumberAllowedByRegistry(newNumber)) {
+            return OperationResult.NotInRegistry
+        }
+
+        val current = items[oldIndex]
+        items[oldIndex] = current.copy(number = newNumber)
+
+        autoFixPosition0()
+
+        return OperationResult.Success
+    }
+
+    /**
+     * Removes queue items whose numbers are no longer present in registry.
+     * Returns the removed numbers for diagnostics / UI decisions.
+     */
+    fun validateAgainstRegistry(
+        isNumberAllowedByRegistry: (Int) -> Boolean
+    ): ValidationResult {
+
+        val removed = mutableListOf<Int>()
+
+        val iterator = items.iterator()
+        while (iterator.hasNext()) {
+            val item = iterator.next()
+            if (!isNumberAllowedByRegistry(item.number)) {
+                removed.add(item.number)
+                iterator.remove()
+            }
+        }
+
+        autoFixPosition0()
+
+        return ValidationResult(
+            removedNumbers = removed,
+            finalSize = items.size
+        )
+    }
+
+    /**
+     * Restores queue state from an external snapshot.
+     *
+     * Safety rules during restore:
+     * - number must be in 1..99
+     * - duplicates are ignored (first valid occurrence wins)
+     * - if registry validator is provided, invalid registry numbers are skipped
+     * - final queue is auto-fixed to respect active item at position 0
+     */
+    fun restoreFromSnapshot(
+        snapshot: List<QueueItem>,
+        isNumberAllowedByRegistry: ((Int) -> Boolean)? = null
+    ): OperationResult {
+
+        val restored = mutableListOf<QueueItem>()
+        val seen = mutableSetOf<Int>()
+
+        for (item in snapshot) {
+            val number = item.number
+
+            if (number !in 1..99) continue
+            if (seen.contains(number)) continue
+            if (isNumberAllowedByRegistry != null && !isNumberAllowedByRegistry(number)) continue
+
+            restored.add(item)
+            seen.add(number)
+        }
+
+        items.clear()
+        items.addAll(restored)
+
+        autoFixPosition0()
+
+        return OperationResult.Success
+    }
+
     private fun autoFixPosition0() {
 
         if (items.isEmpty()) return
@@ -145,14 +253,16 @@ class QueueManager {
     }
 
     private fun hasAnyActive(excludingIndex: Int?): Boolean {
-
         return items.anyIndexed { idx, item ->
-            if (excludingIndex != null && idx == excludingIndex) false else item.isActive
+            if (excludingIndex != null && idx == excludingIndex) {
+                false
+            } else {
+                item.isActive
+            }
         }
     }
 
     private inline fun <T> List<T>.anyIndexed(predicate: (index: Int, item: T) -> Boolean): Boolean {
-
         for (i in indices) {
             if (predicate(i, this[i])) return true
         }

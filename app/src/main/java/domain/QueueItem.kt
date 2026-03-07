@@ -4,7 +4,7 @@ package com.carlist.pro.domain
  * Domain model for the queue list.
  *
  * Categories (BUS/VAN/MY_CAR) are NOT stored here long-term.
- * They will be provided from TransportStore later.
+ * They are resolved from registry/transport data outside the queue item itself.
  */
 data class QueueItem(
     val number: Int,

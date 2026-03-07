@@ -2,6 +2,7 @@ package com.carlist.pro.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.carlist.pro.domain.RegistryEntry
 import com.carlist.pro.domain.TransportInfo
 import com.carlist.pro.domain.TransportType
 
@@ -12,6 +13,17 @@ class DriverRegistryStore(context: Context) {
 
     fun getAllowedNumbers(): List<Int> {
         return readNumbers()
+    }
+
+    fun getEntries(): List<RegistryEntry> {
+        return readNumbers().map { number ->
+            val info = getInfo(number)
+            RegistryEntry(
+                number = number,
+                transportType = info.transportType,
+                isMyCar = info.isMyCar
+            )
+        }
     }
 
     fun isAllowed(number: Int): Boolean {
@@ -39,6 +51,7 @@ class DriverRegistryStore(context: Context) {
                 current.add(newNumber)
             }
             saveNumbers(current)
+            normalizeSingleMyCar()
             return Result.success(Unit)
         }
 
@@ -53,8 +66,17 @@ class DriverRegistryStore(context: Context) {
         current[oldIndex] = newNumber
         saveNumbers(current)
         setInfo(newNumber, oldInfo)
+        normalizeSingleMyCar()
 
         return Result.success(Unit)
+    }
+
+    /**
+     * Safe direct replacement helper.
+     * Keeps the same position in ordered list and transfers transport/my-car flags.
+     */
+    fun replaceNumber(oldNumber: Int, newNumber: Int): Result<Unit> {
+        return upsertNumber(oldNumber, newNumber)
     }
 
     fun removeNumber(number: Int) {
@@ -65,6 +87,7 @@ class DriverRegistryStore(context: Context) {
             saveNumbers(current)
         }
         clearCategories(number)
+        normalizeSingleMyCar()
     }
 
     fun sortNumbersAscending() {
@@ -73,6 +96,7 @@ class DriverRegistryStore(context: Context) {
             .distinct()
 
         saveNumbers(sorted)
+        normalizeSingleMyCar()
     }
 
     fun getInfo(number: Int): TransportInfo {
@@ -95,6 +119,10 @@ class DriverRegistryStore(context: Context) {
             .putString(keyType(number), info.transportType.name)
             .putBoolean(keyMyCar(number), info.isMyCar)
             .apply()
+
+        if (info.isMyCar) {
+            enforceSingleMyCar(number)
+        }
     }
 
     fun setTransportType(number: Int, type: TransportType) {
@@ -103,11 +131,41 @@ class DriverRegistryStore(context: Context) {
             .apply()
     }
 
+    /**
+     * Backward-compatible API used by current UI.
+     *
+     * New behavior:
+     * - if turning ON -> this number becomes the only MY_CAR
+     * - if turning OFF -> clears MY_CAR from this number
+     */
     fun toggleMyCar(number: Int) {
         val now = prefs.getBoolean(keyMyCar(number), false)
-        prefs.edit()
-            .putBoolean(keyMyCar(number), !now)
-            .apply()
+
+        if (now) {
+            prefs.edit()
+                .putBoolean(keyMyCar(number), false)
+                .apply()
+            return
+        }
+
+        enforceSingleMyCar(number)
+    }
+
+    fun setMyCar(number: Int) {
+        if (!isAllowed(number)) return
+        enforceSingleMyCar(number)
+    }
+
+    fun clearMyCar() {
+        val editor = prefs.edit()
+        readNumbers().forEach { number ->
+            editor.putBoolean(keyMyCar(number), false)
+        }
+        editor.apply()
+    }
+
+    fun getMyCar(): Int? {
+        return readNumbers().firstOrNull { prefs.getBoolean(keyMyCar(it), false) }
     }
 
     fun clearCategories(number: Int) {
@@ -115,6 +173,36 @@ class DriverRegistryStore(context: Context) {
             .remove(keyType(number))
             .remove(keyMyCar(number))
             .apply()
+    }
+
+    private fun enforceSingleMyCar(number: Int) {
+        val editor = prefs.edit()
+
+        readNumbers().forEach { n ->
+            editor.putBoolean(keyMyCar(n), n == number)
+        }
+
+        editor.apply()
+    }
+
+    /**
+     * Safety normalization in case older data already has multiple MY_CAR flags.
+     * Keeps the first flagged number, clears the rest.
+     */
+    private fun normalizeSingleMyCar() {
+        val numbers = readNumbers()
+        var found = false
+        val editor = prefs.edit()
+
+        numbers.forEach { n ->
+            val flagged = prefs.getBoolean(keyMyCar(n), false)
+            when {
+                flagged && !found -> found = true
+                flagged && found -> editor.putBoolean(keyMyCar(n), false)
+            }
+        }
+
+        editor.apply()
     }
 
     private fun readNumbers(): List<Int> {
