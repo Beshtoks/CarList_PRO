@@ -356,7 +356,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             binding.inputHint.visibility = View.VISIBLE
             binding.numberInput.isCursorVisible = false
-            binding.inputHint.text = "Nr / 🛠 / 🔊"
+            binding.inputHint.text = "Nr / 🛠"
         }
     }
 
@@ -378,6 +378,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnClearList.setOnClickListener {
+            // Пока это только безопасная точка входа под будущий микрофон.
+            feedback.ok()
+        }
+
+        binding.btnClearList.setOnLongClickListener {
             MaterialAlertDialogBuilder(this)
                 .setTitle("CLEAR LIST")
                 .setMessage("Are you sure?")
@@ -387,6 +392,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 .setNegativeButton("NO", null)
                 .show()
+            true
         }
     }
 
