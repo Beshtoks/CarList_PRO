@@ -1,7 +1,10 @@
 package com.carlist.pro.ui
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -12,8 +15,10 @@ import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -34,6 +39,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var adapter: QueueAdapter
     private lateinit var layoutManager: LinearLayoutManager
     private lateinit var feedback: SystemFeedback
+    private lateinit var voiceInputManager: VoiceInputManager
 
     private var imeVisibleNow = false
     private var autoCopyEnabled = false
@@ -46,7 +52,6 @@ class MainActivity : AppCompatActivity() {
     private var isTechMenuOpen = false
     private var isManualInputMode = false
 
-    // Жесты левого табло
     private val gestureHandler = Handler(Looper.getMainLooper())
     private val longPressTimeoutMs = ViewConfiguration.getLongPressTimeout().toLong()
     private var inputPanelTouchActive = false
@@ -59,6 +64,30 @@ class MainActivity : AppCompatActivity() {
             applyInputVisualState(imeVisibleNow)
         }
     }
+
+    private var micSessionActive = false
+    private val micSilenceTimeoutMs = 5_000L
+
+    private val micSilenceTimeoutRunnable = Runnable {
+        if (micSessionActive) {
+            stopMicSession()
+        }
+    }
+
+    private val micRestoreSayNumberRunnable = Runnable {
+        if (micSessionActive) {
+            setMicButtonListeningState()
+        }
+    }
+
+    private val recordAudioPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                startMicSession()
+            } else {
+                // Без звука
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
 
@@ -76,6 +105,37 @@ class MainActivity : AppCompatActivity() {
 
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
         feedback = SystemFeedback(this)
+
+        voiceInputManager = VoiceInputManager(
+            context = this,
+            onListeningStarted = {
+                runOnUiThread {
+                    if (!micSessionActive) return@runOnUiThread
+                    setMicButtonListeningState()
+                    restartMicSilenceTimer()
+                }
+            },
+            onSpeechDetected = {
+                runOnUiThread {
+                    if (!micSessionActive) return@runOnUiThread
+                    restartMicSilenceTimer()
+                }
+            },
+            onNumberRecognized = { recognizedNumber ->
+                runOnUiThread {
+                    if (!micSessionActive) return@runOnUiThread
+                    restartMicSilenceTimer()
+                    handleVoiceRecognizedNumber(recognizedNumber)
+                }
+            },
+            onFailure = {
+                runOnUiThread {
+                    if (!micSessionActive) return@runOnUiThread
+                    restartMicSilenceTimer()
+                    scheduleNextVoiceListen()
+                }
+            }
+        )
 
         adapter = QueueAdapter(
             transportInfoProvider = { number -> viewModel.getTransportInfo(number) },
@@ -153,6 +213,7 @@ class MainActivity : AppCompatActivity() {
 
         lockManualInput()
         applyInputVisualState(false)
+        setMicButtonOffState()
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -230,7 +291,6 @@ class MainActivity : AppCompatActivity() {
         binding.numberInput.isFocusableInTouchMode = false
         binding.numberInput.isCursorVisible = false
 
-        // Long press обрабатывается вручную через dispatchTouchEvent
         binding.inputPanel.setOnLongClickListener { true }
 
         binding.numberInput.setOnClickListener(null)
@@ -378,8 +438,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnClearList.setOnClickListener {
-            // Пока это только безопасная точка входа под будущий микрофон.
-            feedback.ok()
+            if (micSessionActive) {
+                stopMicSession()
+            } else {
+                ensureMicPermissionAndStart()
+            }
         }
 
         binding.btnClearList.setOnLongClickListener {
@@ -394,6 +457,96 @@ class MainActivity : AppCompatActivity() {
                 .show()
             true
         }
+    }
+
+    private fun ensureMicPermissionAndStart() {
+        when {
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED -> {
+                startMicSession()
+            }
+
+            else -> {
+                recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
+    }
+
+    private fun startMicSession() {
+        if (!voiceInputManager.isAvailable()) {
+            return
+        }
+
+        micSessionActive = true
+        setMicButtonListeningState()
+        restartMicSilenceTimer()
+        scheduleNextVoiceListen()
+    }
+
+    private fun stopMicSession() {
+        micSessionActive = false
+        gestureHandler.removeCallbacks(micSilenceTimeoutRunnable)
+        gestureHandler.removeCallbacks(micRestoreSayNumberRunnable)
+        voiceInputManager.stopListening()
+        setMicButtonOffState()
+    }
+
+    private fun restartMicSilenceTimer() {
+        gestureHandler.removeCallbacks(micSilenceTimeoutRunnable)
+        gestureHandler.postDelayed(micSilenceTimeoutRunnable, micSilenceTimeoutMs)
+    }
+
+    private fun scheduleNextVoiceListen() {
+        if (!micSessionActive) return
+
+        voiceInputManager.stopListening()
+        voiceInputManager.startListening()
+    }
+
+    private fun handleVoiceRecognizedNumber(number: Int) {
+        val result = viewModel.addNumber(number)
+
+        when (result) {
+            is QueueManager.AddResult.Added -> {
+                feedback.ok()
+                setMicButtonListeningState()
+            }
+
+            QueueManager.AddResult.InvalidNumber,
+            QueueManager.AddResult.DuplicateInQueue,
+            QueueManager.AddResult.NotInRegistry -> {
+                feedback.error()
+                showMicNotFoundStateTemporarily()
+            }
+        }
+
+        if (micSessionActive) {
+            restartMicSilenceTimer()
+            scheduleNextVoiceListen()
+        }
+    }
+
+    private fun setMicButtonOffState() {
+        binding.btnClearList.text = "mic🔊/CLEAR LIST"
+        binding.btnClearList.backgroundTintList =
+            ColorStateList.valueOf(0xFFC53030.toInt())
+    }
+
+    private fun setMicButtonListeningState() {
+        binding.btnClearList.text = "say number"
+        binding.btnClearList.backgroundTintList =
+            ColorStateList.valueOf(0xFF2F855A.toInt())
+    }
+
+    private fun showMicNotFoundStateTemporarily() {
+        binding.btnClearList.text = "not found"
+        binding.btnClearList.backgroundTintList =
+            ColorStateList.valueOf(0xFFC53030.toInt())
+
+        gestureHandler.removeCallbacks(micRestoreSayNumberRunnable)
+        gestureHandler.postDelayed(micRestoreSayNumberRunnable, 500L)
     }
 
     private fun updateAutocopyButtonText() {
@@ -525,6 +678,9 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         longPressRunnable?.let { gestureHandler.removeCallbacks(it) }
         gestureHandler.removeCallbacks(techTapTimeoutRunnable)
+        gestureHandler.removeCallbacks(micSilenceTimeoutRunnable)
+        gestureHandler.removeCallbacks(micRestoreSayNumberRunnable)
+        voiceInputManager.release()
         super.onDestroy()
         feedback.release()
     }

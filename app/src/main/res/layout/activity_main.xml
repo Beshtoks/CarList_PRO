@@ -9,7 +9,7 @@
     android:background="#000000"
     tools:context=".ui.MainActivity">
 
-    <!-- Top panel (3 sections: left input / center info / right counter) -->
+    <!-- Top panel -->
     <LinearLayout
         android:id="@+id/topPanel"
         android:layout_width="0dp"
@@ -23,7 +23,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <!-- Left: input (40%) -->
+        <!-- Left -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/inputPanel"
             android:layout_width="0dp"
@@ -68,7 +68,7 @@
 
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Center: info (40%) -->
+        <!-- Center -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/infoPanel"
             android:layout_width="0dp"
@@ -94,7 +94,7 @@
 
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Right: counter (20%) -->
+        <!-- Right -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/counterPanel"
             android:layout_width="0dp"
