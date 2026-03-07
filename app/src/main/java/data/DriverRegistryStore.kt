@@ -67,6 +67,14 @@ class DriverRegistryStore(context: Context) {
         clearCategories(number)
     }
 
+    fun sortNumbersAscending() {
+        val sorted = readNumbers()
+            .sorted()
+            .distinct()
+
+        saveNumbers(sorted)
+    }
+
     fun getInfo(number: Int): TransportInfo {
         val typeRaw = prefs.getString(
             keyType(number),

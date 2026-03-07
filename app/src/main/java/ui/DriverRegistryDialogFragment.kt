@@ -43,6 +43,8 @@ class DriverRegistryDialogFragment : DialogFragment() {
         binding.registryRecycler.adapter = adapter
 
         binding.btnOk.setOnClickListener {
+            viewModel.sortRegistryNumbersForClose()
+            adapter.refresh()
             dismissAllowingStateLoss()
         }
 

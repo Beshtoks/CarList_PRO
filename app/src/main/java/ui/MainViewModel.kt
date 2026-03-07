@@ -107,10 +107,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setRegistryActiveRow(pos: Int) {
         activeRowIndex = pos.coerceAtLeast(0)
         lastCommitFailedRow = null
-        // ВАЖНО:
-        // тут специально НЕ вызываем tickRegistry(),
-        // чтобы простой тап по строке не перерисовывал весь RecyclerView
-        // и не сбрасывал только что поставленный курсор.
     }
 
     fun getRegistryActiveRow(): Int = activeRowIndex
@@ -149,6 +145,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
         tickRegistry()
         return CommitResult.OK
+    }
+
+    fun sortRegistryNumbersForClose() {
+        registryStore.sortNumbersAscending()
+        activeRowIndex = 0
+        lastCommitFailedRow = null
+        tickRegistry()
     }
 
     fun onRegistryCategoryAction(number: Int, action: DriverRegistryAdapter.CategoryAction) {

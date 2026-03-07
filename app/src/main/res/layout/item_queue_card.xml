@@ -17,14 +17,18 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <ImageView
-            android:id="@+id/transportIcon"
-            android:layout_width="22dp"
-            android:layout_height="22dp"
+        <TextView
+            android:id="@+id/categoryLetterText"
+            android:layout_width="44dp"
+            android:layout_height="match_parent"
             android:layout_gravity="start|center_vertical"
-            android:layout_marginStart="10dp"
-            android:contentDescription="transport"
-            android:visibility="gone"/>
+            android:layout_marginStart="6dp"
+            android:gravity="center"
+            android:text=""
+            android:textColor="#111111"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
 
         <TextView
             android:id="@+id/numberText"

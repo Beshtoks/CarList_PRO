@@ -1,11 +1,9 @@
 package com.carlist.pro.ui
 
-import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
-import com.carlist.pro.R
 import com.carlist.pro.databinding.ItemQueueCardBinding
 import com.carlist.pro.domain.QueueItem
 import com.carlist.pro.domain.Status
@@ -62,9 +60,9 @@ class QueueAdapter(
             binding.numberText.text = item.number.toString()
 
             val bgColor = when (item.status) {
-                Status.NONE -> 0xFFB7E5A5.toInt()      // light green
-                Status.SERVICE -> 0xFFF5B7B1.toInt()   // light pink
-                Status.JURNIEKS -> 0xFFAED6F1.toInt()  // light blue
+                Status.NONE -> 0xFFB7E5A5.toInt()
+                Status.SERVICE -> 0xFFF5B7B1.toInt()
+                Status.JURNIEKS -> 0xFFAED6F1.toInt()
             }
 
             binding.cardRoot.setCardBackgroundColor(bgColor)
@@ -74,21 +72,14 @@ class QueueAdapter(
 
             val info = infoProvider?.invoke(item.number) ?: TransportInfo()
 
-            when (info.transportType) {
-                TransportType.BUS -> {
-                    binding.transportIcon.visibility = View.VISIBLE
-                    binding.transportIcon.setImageResource(R.drawable.ic_directions_bus)
-                }
-                TransportType.VAN -> {
-                    binding.transportIcon.visibility = View.VISIBLE
-                    binding.transportIcon.setImageResource(R.drawable.ic_airport_shuttle)
-                }
-                TransportType.NONE -> {
-                    binding.transportIcon.visibility = View.GONE
-                }
+            val categoryLetter = buildCategoryLetter(info)
+            if (categoryLetter.isEmpty()) {
+                binding.categoryLetterText.visibility = View.GONE
+                binding.categoryLetterText.text = ""
+            } else {
+                binding.categoryLetterText.visibility = View.VISIBLE
+                binding.categoryLetterText.text = categoryLetter
             }
-
-            binding.transportIcon.setColorFilter(Color.BLACK)
 
             if (info.isMyCar) {
                 binding.cardRoot.strokeWidth = dpToPx(3f)
@@ -99,6 +90,15 @@ class QueueAdapter(
 
             binding.cardRoot.setOnClickListener {
                 onCardShortTap?.invoke(item, binding.cardRoot)
+            }
+        }
+
+        private fun buildCategoryLetter(info: TransportInfo): String {
+            return when {
+                info.transportType == TransportType.BUS -> "B"
+                info.transportType == TransportType.VAN -> "V"
+                info.isMyCar -> "M"
+                else -> ""
             }
         }
 
