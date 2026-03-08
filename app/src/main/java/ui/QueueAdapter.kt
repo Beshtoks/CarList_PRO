@@ -4,12 +4,11 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
-import com.carlist.pro.R
 import com.carlist.pro.databinding.ItemQueueCardBinding
 import com.carlist.pro.domain.QueueItem
-import com.carlist.pro.domain.Status
 import com.carlist.pro.domain.TransportInfo
 import com.carlist.pro.domain.TransportType
+import com.carlist.pro.domain.Status
 
 class QueueAdapter(
     private val transportInfoProvider: ((Int) -> TransportInfo)? = null,
@@ -62,30 +61,26 @@ class QueueAdapter(
 
             when (item.status) {
                 Status.NONE -> {
-                    binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_standard_3d)
-                    binding.numberText.setTextColor(0xFF103710.toInt())
-                    binding.categoryLetterText.setTextColor(0xCC173F17.toInt())
+                    binding.cardSurface.setBackgroundColor(0xFFA89774.toInt())
                 }
-
-                Status.SERVICE -> {
-                    binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_service_3d)
-                    binding.numberText.setTextColor(0xFF4A1616.toInt())
-                    binding.categoryLetterText.setTextColor(0xCC5A1E1E.toInt())
-                }
-
                 Status.JURNIEKS -> {
-                    binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_jurnieks_3d)
-                    binding.numberText.setTextColor(0xFF12354A.toInt())
-                    binding.categoryLetterText.setTextColor(0xCC174763.toInt())
+                    binding.cardSurface.setBackgroundColor(0xFF4B8DAB.toInt())
+                }
+                Status.SERVICE -> {
+                    binding.cardSurface.setBackgroundColor(0xFFAB54A2.toInt())
                 }
             }
 
-            binding.numberText.setShadowLayer(0f, 0f, 0f, 0)
-            binding.categoryLetterText.setShadowLayer(0f, 0f, 0f, 0)
+            // номер машины — тёмно-зелёный
+            binding.numberText.setTextColor(0xFF0B3D0B.toInt())
+
+            // категория — тёмно-коричневая
+            binding.categoryLetterText.setTextColor(0xFF3B2A18.toInt())
 
             val info = infoProvider?.invoke(item.number) ?: TransportInfo()
 
             val categoryLetter = buildCategoryLetter(info)
+
             if (categoryLetter.isEmpty()) {
                 binding.categoryLetterText.visibility = View.GONE
                 binding.categoryLetterText.text = ""
