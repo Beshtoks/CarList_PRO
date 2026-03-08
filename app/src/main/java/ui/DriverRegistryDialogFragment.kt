@@ -3,10 +3,12 @@ package com.carlist.pro.ui
 import android.app.Dialog
 import android.content.DialogInterface
 import android.os.Bundle
+import android.text.InputType
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.DialogFragment
@@ -100,14 +102,26 @@ class DriverRegistryDialogFragment : DialogFragment() {
                             as? DriverRegistryAdapter.VH
                         ?: return@post
 
+                val edit = holder.getEditText()
+
+                edit.inputType = InputType.TYPE_CLASS_NUMBER
+                edit.setRawInputType(InputType.TYPE_CLASS_NUMBER)
+                edit.imeOptions = EditorInfo.IME_ACTION_DONE
+
                 holder.focusField()
 
-                val edit = holder.getEditText()
-                edit.post {
-                    holder.focusField()
+                edit.postDelayed({
+                    if (!isAdded) return@postDelayed
+
+                    edit.inputType = InputType.TYPE_CLASS_NUMBER
+                    edit.setRawInputType(InputType.TYPE_CLASS_NUMBER)
+                    edit.imeOptions = EditorInfo.IME_ACTION_DONE
+                    edit.setSelection(edit.text?.length ?: 0)
+
                     val imm = requireContext().getSystemService(InputMethodManager::class.java)
+                    imm.restartInput(edit)
                     imm.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
-                }
+                }, 120L)
             }
         }
     }

@@ -1,12 +1,10 @@
 package com.carlist.pro.ui
 
-import android.content.Context
+import android.text.InputType
 import android.view.KeyEvent
 import android.view.LayoutInflater
-import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputMethodManager
 import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.RecyclerView
 import com.carlist.pro.databinding.ItemRegistryRowBinding
@@ -54,6 +52,8 @@ class DriverRegistryAdapter(
         fun bind(row: RegistryRow, position: Int) {
             val asText = row.number?.toString().orEmpty()
 
+            forceNumericMode()
+
             if (binding.etNumber.text?.toString() != asText) {
                 binding.etNumber.setText(asText)
                 binding.etNumber.setSelection(binding.etNumber.text?.length ?: 0)
@@ -68,25 +68,20 @@ class DriverRegistryAdapter(
             }
             binding.underline.setBackgroundColor(underlineColor)
 
-            binding.etNumber.imeOptions = EditorInfo.IME_ACTION_DONE
-            binding.etNumber.setSingleLine(true)
-
             binding.root.setOnClickListener {
                 onRowActivated(position)
                 focusField()
-                showKeyboard()
             }
 
             binding.etNumber.setOnClickListener {
                 onRowActivated(position)
                 focusField()
-                showKeyboard()
             }
 
             binding.etNumber.setOnFocusChangeListener { _, hasFocus ->
                 if (hasFocus) {
                     onRowActivated(position)
-                    showKeyboard()
+                    forceNumericMode()
                 }
             }
 
@@ -120,7 +115,6 @@ class DriverRegistryAdapter(
                     CommitResult.ERROR_CLEAR -> {
                         binding.etNumber.setText("")
                         focusField()
-                        showKeyboard()
                     }
                 }
 
@@ -153,6 +147,7 @@ class DriverRegistryAdapter(
         }
 
         fun focusField() {
+            forceNumericMode()
             binding.etNumber.isFocusable = true
             binding.etNumber.isFocusableInTouchMode = true
             binding.etNumber.isCursorVisible = true
@@ -162,12 +157,11 @@ class DriverRegistryAdapter(
 
         fun getEditText() = binding.etNumber
 
-        private fun showKeyboard() {
-            binding.etNumber.post {
-                val imm = binding.etNumber.context
-                    .getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                imm.showSoftInput(binding.etNumber, InputMethodManager.SHOW_IMPLICIT)
-            }
+        private fun forceNumericMode() {
+            binding.etNumber.inputType = InputType.TYPE_CLASS_NUMBER
+            binding.etNumber.setRawInputType(InputType.TYPE_CLASS_NUMBER)
+            binding.etNumber.imeOptions = EditorInfo.IME_ACTION_DONE
+            binding.etNumber.setSingleLine(true)
         }
     }
 }
