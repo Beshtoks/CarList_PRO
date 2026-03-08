@@ -12,11 +12,16 @@ class DriverRegistryStore(context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     fun getAllowedNumbers(): List<Int> {
-        return readNumbers()
+        val numbers = readNumbersSafe()
+        saveNumbers(numbers)
+        normalizeSingleMyCar()
+        return numbers
     }
 
     fun getEntries(): List<RegistryEntry> {
-        return readNumbers().map { number ->
+        val numbers = getAllowedNumbers()
+
+        return numbers.map { number ->
             val info = getInfo(number)
             RegistryEntry(
                 number = number,
@@ -28,7 +33,7 @@ class DriverRegistryStore(context: Context) {
 
     fun isAllowed(number: Int): Boolean {
         if (number !in 1..99) return false
-        return readNumbers().contains(number)
+        return readNumbersSafe().contains(number)
     }
 
     /**
@@ -40,115 +45,142 @@ class DriverRegistryStore(context: Context) {
             return Result.failure(IllegalArgumentException("Invalid number"))
         }
 
-        val current = readNumbers().toMutableList()
+        return try {
+            val current = readNumbersSafe().toMutableList()
 
-        if (current.contains(newNumber) && newNumber != oldNumber) {
-            return Result.failure(IllegalStateException("Duplicate number"))
-        }
-
-        if (oldNumber == null) {
-            if (!current.contains(newNumber)) {
-                current.add(newNumber)
+            if (current.contains(newNumber) && newNumber != oldNumber) {
+                return Result.failure(IllegalStateException("Duplicate number"))
             }
+
+            if (oldNumber == null) {
+                if (!current.contains(newNumber)) {
+                    current.add(newNumber)
+                }
+                saveNumbers(current)
+                normalizeSingleMyCar()
+                return Result.success(Unit)
+            }
+
+            val oldIndex = current.indexOf(oldNumber)
+            if (oldIndex == -1) {
+                return Result.failure(IllegalStateException("Old number not found"))
+            }
+
+            val oldInfo = getInfo(oldNumber)
+            clearCategories(oldNumber)
+
+            current[oldIndex] = newNumber
             saveNumbers(current)
+            setInfo(newNumber, oldInfo)
             normalizeSingleMyCar()
-            return Result.success(Unit)
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
-
-        val oldIndex = current.indexOf(oldNumber)
-        if (oldIndex == -1) {
-            return Result.failure(IllegalStateException("Old number not found"))
-        }
-
-        val oldInfo = getInfo(oldNumber)
-        clearCategories(oldNumber)
-
-        current[oldIndex] = newNumber
-        saveNumbers(current)
-        setInfo(newNumber, oldInfo)
-        normalizeSingleMyCar()
-
-        return Result.success(Unit)
     }
 
-    /**
-     * Safe direct replacement helper.
-     * Keeps the same position in ordered list and transfers transport/my-car flags.
-     */
     fun replaceNumber(oldNumber: Int, newNumber: Int): Result<Unit> {
         return upsertNumber(oldNumber, newNumber)
     }
 
     fun removeNumber(number: Int) {
-        val current = readNumbers().toMutableList()
-        val index = current.indexOf(number)
-        if (index != -1) {
-            current.removeAt(index)
-            saveNumbers(current)
+        try {
+            val current = readNumbersSafe().toMutableList()
+            val index = current.indexOf(number)
+            if (index != -1) {
+                current.removeAt(index)
+                saveNumbers(current)
+            }
+            clearCategories(number)
+            normalizeSingleMyCar()
+        } catch (_: Exception) {
+            // Не роняем приложение
         }
-        clearCategories(number)
-        normalizeSingleMyCar()
     }
 
     fun sortNumbersAscending() {
-        val sorted = readNumbers()
-            .sorted()
-            .distinct()
+        try {
+            val sorted = readNumbersSafe()
+                .sorted()
+                .distinct()
 
-        saveNumbers(sorted)
-        normalizeSingleMyCar()
+            saveNumbers(sorted)
+            normalizeSingleMyCar()
+        } catch (_: Exception) {
+            // Не роняем приложение
+        }
     }
 
     fun getInfo(number: Int): TransportInfo {
-        val typeRaw = prefs.getString(
-            keyType(number),
-            TransportType.NONE.name
-        ) ?: TransportType.NONE.name
+        if (number !in 1..99) {
+            return TransportInfo(TransportType.NONE, false)
+        }
 
-        val type = runCatching {
-            TransportType.valueOf(typeRaw)
-        }.getOrDefault(TransportType.NONE)
+        return try {
+            val typeRaw = prefs.getString(
+                keyType(number),
+                TransportType.NONE.name
+            ) ?: TransportType.NONE.name
 
-        val my = prefs.getBoolean(keyMyCar(number), false)
+            val type = runCatching {
+                TransportType.valueOf(typeRaw)
+            }.getOrDefault(TransportType.NONE)
 
-        return TransportInfo(type, my)
+            val my = prefs.getBoolean(keyMyCar(number), false)
+
+            TransportInfo(type, my)
+        } catch (_: Exception) {
+            TransportInfo(TransportType.NONE, false)
+        }
     }
 
     fun setInfo(number: Int, info: TransportInfo) {
-        prefs.edit()
-            .putString(keyType(number), info.transportType.name)
-            .putBoolean(keyMyCar(number), info.isMyCar)
-            .apply()
+        if (number !in 1..99) return
 
-        if (info.isMyCar) {
-            enforceSingleMyCar(number)
+        try {
+            prefs.edit()
+                .putString(keyType(number), info.transportType.name)
+                .putBoolean(keyMyCar(number), info.isMyCar)
+                .apply()
+
+            if (info.isMyCar) {
+                enforceSingleMyCar(number)
+            }
+        } catch (_: Exception) {
+            // Не роняем приложение
         }
     }
 
     fun setTransportType(number: Int, type: TransportType) {
-        prefs.edit()
-            .putString(keyType(number), type.name)
-            .apply()
+        if (number !in 1..99) return
+
+        try {
+            prefs.edit()
+                .putString(keyType(number), type.name)
+                .apply()
+        } catch (_: Exception) {
+            // Не роняем приложение
+        }
     }
 
-    /**
-     * Backward-compatible API used by current UI.
-     *
-     * New behavior:
-     * - if turning ON -> this number becomes the only MY_CAR
-     * - if turning OFF -> clears MY_CAR from this number
-     */
     fun toggleMyCar(number: Int) {
-        val now = prefs.getBoolean(keyMyCar(number), false)
+        if (!isAllowed(number)) return
 
-        if (now) {
-            prefs.edit()
-                .putBoolean(keyMyCar(number), false)
-                .apply()
-            return
+        try {
+            val now = prefs.getBoolean(keyMyCar(number), false)
+
+            if (now) {
+                prefs.edit()
+                    .putBoolean(keyMyCar(number), false)
+                    .apply()
+                return
+            }
+
+            enforceSingleMyCar(number)
+        } catch (_: Exception) {
+            // Не роняем приложение
         }
-
-        enforceSingleMyCar(number)
     }
 
     fun setMyCar(number: Int) {
@@ -157,32 +189,50 @@ class DriverRegistryStore(context: Context) {
     }
 
     fun clearMyCar() {
-        val editor = prefs.edit()
-        readNumbers().forEach { number ->
-            editor.putBoolean(keyMyCar(number), false)
+        try {
+            val editor = prefs.edit()
+            readNumbersSafe().forEach { number ->
+                editor.putBoolean(keyMyCar(number), false)
+            }
+            editor.apply()
+        } catch (_: Exception) {
+            // Не роняем приложение
         }
-        editor.apply()
     }
 
     fun getMyCar(): Int? {
-        return readNumbers().firstOrNull { prefs.getBoolean(keyMyCar(it), false) }
+        return try {
+            readNumbersSafe().firstOrNull { prefs.getBoolean(keyMyCar(it), false) }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun clearCategories(number: Int) {
-        prefs.edit()
-            .remove(keyType(number))
-            .remove(keyMyCar(number))
-            .apply()
+        if (number !in 1..99) return
+
+        try {
+            prefs.edit()
+                .remove(keyType(number))
+                .remove(keyMyCar(number))
+                .apply()
+        } catch (_: Exception) {
+            // Не роняем приложение
+        }
     }
 
     private fun enforceSingleMyCar(number: Int) {
-        val editor = prefs.edit()
+        try {
+            val editor = prefs.edit()
 
-        readNumbers().forEach { n ->
-            editor.putBoolean(keyMyCar(n), n == number)
+            readNumbersSafe().forEach { n ->
+                editor.putBoolean(keyMyCar(n), n == number)
+            }
+
+            editor.apply()
+        } catch (_: Exception) {
+            // Не роняем приложение
         }
-
-        editor.apply()
     }
 
     /**
@@ -190,40 +240,52 @@ class DriverRegistryStore(context: Context) {
      * Keeps the first flagged number, clears the rest.
      */
     private fun normalizeSingleMyCar() {
-        val numbers = readNumbers()
-        var found = false
-        val editor = prefs.edit()
+        try {
+            val numbers = readNumbersSafe()
+            var found = false
+            val editor = prefs.edit()
 
-        numbers.forEach { n ->
-            val flagged = prefs.getBoolean(keyMyCar(n), false)
-            when {
-                flagged && !found -> found = true
-                flagged && found -> editor.putBoolean(keyMyCar(n), false)
+            numbers.forEach { n ->
+                val flagged = prefs.getBoolean(keyMyCar(n), false)
+                when {
+                    flagged && !found -> found = true
+                    flagged && found -> editor.putBoolean(keyMyCar(n), false)
+                }
             }
-        }
 
-        editor.apply()
+            editor.apply()
+        } catch (_: Exception) {
+            // Не роняем приложение
+        }
     }
 
-    private fun readNumbers(): List<Int> {
-        val raw = prefs.getString(KEY_NUMBERS_ORDERED, "").orEmpty()
-        if (raw.isBlank()) return emptyList()
+    private fun readNumbersSafe(): List<Int> {
+        return try {
+            val raw = prefs.getString(KEY_NUMBERS_ORDERED, "").orEmpty()
+            if (raw.isBlank()) return emptyList()
 
-        return raw.split(",")
-            .mapNotNull { it.trim().toIntOrNull() }
-            .filter { it in 1..99 }
-            .distinct()
+            raw.split(",")
+                .mapNotNull { it.trim().toIntOrNull() }
+                .filter { it in 1..99 }
+                .distinct()
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     private fun saveNumbers(numbers: List<Int>) {
-        val normalized = numbers
-            .filter { it in 1..99 }
-            .distinct()
-            .joinToString(",")
+        try {
+            val normalized = numbers
+                .filter { it in 1..99 }
+                .distinct()
+                .joinToString(",")
 
-        prefs.edit()
-            .putString(KEY_NUMBERS_ORDERED, normalized)
-            .apply()
+            prefs.edit()
+                .putString(KEY_NUMBERS_ORDERED, normalized)
+                .apply()
+        } catch (_: Exception) {
+            // Не роняем приложение
+        }
     }
 
     private fun keyType(number: Int) = "type_$number"

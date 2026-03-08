@@ -52,6 +52,9 @@ class MainActivity : AppCompatActivity() {
     private var isTechMenuOpen = false
     private var isManualInputMode = false
 
+    private var lastQueueSize = 0
+    private var pendingScrollToBottom = false
+
     private val gestureHandler = Handler(Looper.getMainLooper())
     private val longPressTimeoutMs = ViewConfiguration.getLongPressTimeout().toLong()
     private var inputPanelTouchActive = false
@@ -154,21 +157,33 @@ class MainActivity : AppCompatActivity() {
 
         viewModel.queueItems.observe(this) { list ->
 
+            val oldSize = lastQueueSize
+            val newSize = list.size
+            pendingScrollToBottom = newSize > oldSize
+
             binding.infoText.text = "SYNC OFF"
             updateMyCarCounter(list)
 
             if (!isDragging) {
                 adapter.submitItems(list)
 
-                if (!isTechMenuOpen && imeVisibleNow && list.isNotEmpty()) {
-                    val last = list.size - 1
-                    binding.queueRecycler.post {
-                        layoutManager.scrollToPositionWithOffset(last, 0)
+                binding.queueRecycler.post {
+                    when {
+                        !isTechMenuOpen && pendingScrollToBottom && list.isNotEmpty() -> {
+                            val last = list.lastIndex
+                            layoutManager.scrollToPositionWithOffset(last, 0)
+                        }
+
+                        !isTechMenuOpen && list.isNotEmpty() -> {
+                            ensureMyCarVisible(list)
+                        }
                     }
                 }
             }
 
             if (autoCopyEnabled) copyQueueOnce(list)
+
+            lastQueueSize = newSize
         }
 
         binding.numberInput.setOnEditorActionListener { _, actionId, event ->
@@ -634,6 +649,26 @@ class MainActivity : AppCompatActivity() {
         }
         val pos = viewModel.findMyCarPosition(queue)
         binding.counterText.text = if (pos == null) "-/$total" else "$pos/$total"
+    }
+
+    private fun ensureMyCarVisible(queue: List<QueueItem>) {
+        val myCarPosition = viewModel.findMyCarPosition(queue) ?: return
+        val myCarIndex = myCarPosition - 1
+        if (myCarIndex !in queue.indices) return
+
+        val firstVisible = layoutManager.findFirstVisibleItemPosition()
+        val lastVisible = layoutManager.findLastVisibleItemPosition()
+
+        if (firstVisible == androidx.recyclerview.widget.RecyclerView.NO_POSITION ||
+            lastVisible == androidx.recyclerview.widget.RecyclerView.NO_POSITION
+        ) {
+            layoutManager.scrollToPositionWithOffset(myCarIndex, 0)
+            return
+        }
+
+        if (myCarIndex < firstVisible || myCarIndex > lastVisible) {
+            layoutManager.scrollToPositionWithOffset(myCarIndex, 0)
+        }
     }
 
     private fun setupImeHandling() {

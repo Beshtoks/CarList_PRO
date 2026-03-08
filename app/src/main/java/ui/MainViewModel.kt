@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import com.carlist.pro.data.DriverRegistryStore
+import com.carlist.pro.data.QueueStateStore
 import com.carlist.pro.domain.QueueItem
 import com.carlist.pro.domain.QueueManager
 import com.carlist.pro.domain.Status
@@ -15,8 +16,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val queueManager = QueueManager()
     private val registryStore = DriverRegistryStore(app.applicationContext)
+    private val queueStateStore = QueueStateStore(app.applicationContext)
 
-    private val _queueItems = MutableLiveData<List<QueueItem>>(queueManager.snapshot())
+    private val _queueItems = MutableLiveData<List<QueueItem>>(emptyList())
     val queueItems: LiveData<List<QueueItem>> = _queueItems
 
     private val _registryUiTick = MutableLiveData<Long>(0L)
@@ -24,6 +26,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private var activeRowIndex: Int = 0
     private var lastCommitFailedRow: Int? = null
+
+    init {
+
+        val snapshot = queueStateStore.load()
+
+        if (snapshot.isNotEmpty()) {
+
+            queueManager.restoreFromSnapshot(
+                snapshot = snapshot,
+                isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
+            )
+
+            queueManager.validateAgainstRegistry { registryStore.isAllowed(it) }
+        }
+
+        publishSnapshot()
+    }
 
     fun addNumber(numberOrNull: Int?): QueueManager.AddResult {
         val number = numberOrNull ?: return QueueManager.AddResult.InvalidNumber
@@ -86,15 +105,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun getRegistryRows(): List<RegistryRow> {
+
         val numbers = registryStore.getAllowedNumbers()
 
         val rows = mutableListOf<RegistryRow>()
+
         numbers.forEachIndexed { idx, n ->
+
             val underline = when {
                 lastCommitFailedRow == idx -> UnderlineState.RED
                 idx == activeRowIndex -> UnderlineState.BLUE
                 else -> UnderlineState.NONE
             }
+
             rows.add(
                 RegistryRow(
                     number = n,
@@ -129,17 +152,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun getRegistryActiveRow(): Int = activeRowIndex
 
     fun commitRegistryNumber(position: Int, oldNumber: Int?, newText: String): CommitResult {
+
         val trimmed = newText.trim()
         val newNumber = trimmed.toIntOrNull()
 
         if (trimmed.isBlank()) {
+
             if (oldNumber != null) {
                 registryStore.removeNumber(oldNumber)
                 queueManager.removeByNumber(oldNumber)
                 publishSnapshot()
             }
+
             lastCommitFailedRow = null
             activeRowIndex = position.coerceAtLeast(0)
+
             tickRegistry()
             return CommitResult.OK
         }
@@ -151,6 +178,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         val res = registryStore.upsertNumber(oldNumber, newNumber)
+
         if (res.isFailure) {
             lastCommitFailedRow = position
             tickRegistry()
@@ -158,11 +186,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         if (oldNumber != null && oldNumber != newNumber) {
+
             queueManager.replaceNumber(
                 oldNumber = oldNumber,
                 newNumber = newNumber,
                 isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
             )
+
             publishSnapshot()
         }
 
@@ -173,21 +203,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return CommitResult.OK
     }
 
-    fun replaceRegistryNumber(oldNumber: Int, newNumber: Int): Result<Unit> {
-        val res = registryStore.replaceNumber(oldNumber, newNumber)
-        if (res.isFailure) return res
-
-        queueManager.replaceNumber(
-            oldNumber = oldNumber,
-            newNumber = newNumber,
-            isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
-        )
-
-        publishSnapshot()
-        tickRegistry()
-        return Result.success(Unit)
-    }
-
     fun sortRegistryNumbersForClose() {
         registryStore.sortNumbersAscending()
         activeRowIndex = 0
@@ -196,11 +211,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun onRegistryCategoryAction(number: Int, action: DriverRegistryAdapter.CategoryAction) {
+
         when (action) {
-            DriverRegistryAdapter.CategoryAction.BUS -> setRegistryTransportType(number, TransportType.BUS)
-            DriverRegistryAdapter.CategoryAction.VAN -> setRegistryTransportType(number, TransportType.VAN)
-            DriverRegistryAdapter.CategoryAction.MY_CAR -> toggleRegistryMyCar(number)
-            DriverRegistryAdapter.CategoryAction.CLEAR -> clearRegistryCategories(number)
+            DriverRegistryAdapter.CategoryAction.BUS ->
+                setRegistryTransportType(number, TransportType.BUS)
+
+            DriverRegistryAdapter.CategoryAction.VAN ->
+                setRegistryTransportType(number, TransportType.VAN)
+
+            DriverRegistryAdapter.CategoryAction.MY_CAR ->
+                toggleRegistryMyCar(number)
+
+            DriverRegistryAdapter.CategoryAction.CLEAR ->
+                clearRegistryCategories(number)
         }
     }
 
@@ -224,6 +247,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun publishSnapshot() {
-        _queueItems.value = queueManager.snapshot()
+
+        val snap = queueManager.snapshot()
+
+        _queueItems.value = snap
+
+        queueStateStore.save(snap)
     }
 }

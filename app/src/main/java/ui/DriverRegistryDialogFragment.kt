@@ -50,6 +50,7 @@ class DriverRegistryDialogFragment : DialogFragment() {
 
         viewModel.registryUiTick.observe(this) {
             adapter.refresh()
+            focusActiveFieldAndShowKeyboard()
         }
 
         val dialog = AlertDialog.Builder(requireContext())
@@ -83,22 +84,31 @@ class DriverRegistryDialogFragment : DialogFragment() {
 
         binding.registryRecycler.post {
             adapter.refresh()
-            focusFirstFieldAndShowKeyboard()
+            focusActiveFieldAndShowKeyboard()
         }
     }
 
-    private fun focusFirstFieldAndShowKeyboard() {
-        val holder =
-            binding.registryRecycler.findViewHolderForAdapterPosition(0) as? DriverRegistryAdapter.VH
-                ?: return
+    private fun focusActiveFieldAndShowKeyboard() {
+        val targetPosition = viewModel.getRegistryActiveRow().coerceAtLeast(0)
 
-        holder.focusField()
+        binding.registryRecycler.post {
+            binding.registryRecycler.scrollToPosition(targetPosition)
 
-        val edit = holder.getEditText()
-        edit.post {
-            holder.focusField()
-            val imm = requireContext().getSystemService(InputMethodManager::class.java)
-            imm.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
+            binding.registryRecycler.post {
+                val holder =
+                    binding.registryRecycler.findViewHolderForAdapterPosition(targetPosition)
+                            as? DriverRegistryAdapter.VH
+                        ?: return@post
+
+                holder.focusField()
+
+                val edit = holder.getEditText()
+                edit.post {
+                    holder.focusField()
+                    val imm = requireContext().getSystemService(InputMethodManager::class.java)
+                    imm.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
+                }
+            }
         }
     }
 
