@@ -9,7 +9,6 @@
     android:background="#000000"
     tools:context=".ui.MainActivity">
 
-    <!-- Top panel -->
     <LinearLayout
         android:id="@+id/topPanel"
         android:layout_width="0dp"
@@ -23,7 +22,6 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <!-- Left -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/inputPanel"
             android:layout_width="0dp"
@@ -68,7 +66,6 @@
 
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Center -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/infoPanel"
             android:layout_width="0dp"
@@ -94,7 +91,6 @@
 
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Right -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/counterPanel"
             android:layout_width="0dp"
@@ -120,7 +116,6 @@
 
     </LinearLayout>
 
-    <!-- Buttons row -->
     <LinearLayout
         android:id="@+id/actionRow"
         android:layout_width="0dp"
@@ -139,12 +134,18 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:background="@drawable/bg_button_autocopy_3d"
+            android:elevation="6dp"
+            android:stateListAnimator="@null"
             android:text="AUTOCOPY ON"
             android:textAllCaps="true"
+            android:textColor="#FFFFFF"
             android:textStyle="bold"
+            app:backgroundTint="@null"
             app:cornerRadius="10dp"
-            app:backgroundTint="#2B6CB0"
-            android:textColor="#FFFFFF"/>
+            app:iconPadding="0dp"
+            app:rippleColor="#55FFFFFF"
+            app:strokeWidth="0dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnClearList"
@@ -152,16 +153,21 @@
             android:layout_height="match_parent"
             android:layout_marginStart="12dp"
             android:layout_weight="1"
+            android:background="@drawable/bg_button_clear_red_3d"
+            android:elevation="6dp"
+            android:stateListAnimator="@null"
             android:text="mic🔊/CLEAR LIST"
             android:textAllCaps="false"
+            android:textColor="#FFFFFF"
             android:textStyle="bold"
+            app:backgroundTint="@null"
             app:cornerRadius="10dp"
-            app:backgroundTint="#C53030"
-            android:textColor="#FFFFFF"/>
+            app:iconPadding="0dp"
+            app:rippleColor="#55FFFFFF"
+            app:strokeWidth="0dp" />
 
     </LinearLayout>
 
-    <!-- Queue list -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/queueRecycler"
         android:layout_width="0dp"

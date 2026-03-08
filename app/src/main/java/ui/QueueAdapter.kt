@@ -4,6 +4,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
+import com.carlist.pro.R
 import com.carlist.pro.databinding.ItemQueueCardBinding
 import com.carlist.pro.domain.QueueItem
 import com.carlist.pro.domain.Status
@@ -59,16 +60,28 @@ class QueueAdapter(
         ) {
             binding.numberText.text = item.number.toString()
 
-            val bgColor = when (item.status) {
-                Status.NONE -> 0xFFB7E5A5.toInt()
-                Status.SERVICE -> 0xFFF5B7B1.toInt()
-                Status.JURNIEKS -> 0xFFAED6F1.toInt()
+            when (item.status) {
+                Status.NONE -> {
+                    binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_standard_3d)
+                    binding.numberText.setTextColor(0xFF103710.toInt())
+                    binding.categoryLetterText.setTextColor(0xCC173F17.toInt())
+                }
+
+                Status.SERVICE -> {
+                    binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_service_3d)
+                    binding.numberText.setTextColor(0xFF4A1616.toInt())
+                    binding.categoryLetterText.setTextColor(0xCC5A1E1E.toInt())
+                }
+
+                Status.JURNIEKS -> {
+                    binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_jurnieks_3d)
+                    binding.numberText.setTextColor(0xFF12354A.toInt())
+                    binding.categoryLetterText.setTextColor(0xCC174763.toInt())
+                }
             }
 
-            binding.cardRoot.setCardBackgroundColor(bgColor)
-
-            // Очень тёмно-зелёный цвет номера
-            binding.numberText.setTextColor(0xFF0B3D0B.toInt())
+            binding.numberText.setShadowLayer(0f, 0f, 0f, 0)
+            binding.categoryLetterText.setShadowLayer(0f, 0f, 0f, 0)
 
             val info = infoProvider?.invoke(item.number) ?: TransportInfo()
 
@@ -81,11 +94,15 @@ class QueueAdapter(
                 binding.categoryLetterText.text = categoryLetter
             }
 
+            binding.cardRoot.cardElevation = 0f
+            binding.cardRoot.translationZ = 0f
+
             if (info.isMyCar) {
                 binding.cardRoot.strokeWidth = dpToPx(3f)
                 binding.cardRoot.strokeColor = 0xFFFFB300.toInt()
             } else {
-                binding.cardRoot.strokeWidth = 0
+                binding.cardRoot.strokeWidth = dpToPx(1f)
+                binding.cardRoot.strokeColor = 0x55000000
             }
 
             binding.cardRoot.setOnClickListener {
@@ -94,10 +111,9 @@ class QueueAdapter(
         }
 
         private fun buildCategoryLetter(info: TransportInfo): String {
-            return when {
-                info.transportType == TransportType.BUS -> "B"
-                info.transportType == TransportType.VAN -> "V"
-                info.isMyCar -> "M"
+            return when (info.transportType) {
+                TransportType.BUS -> "B"
+                TransportType.VAN -> "V"
                 else -> ""
             }
         }

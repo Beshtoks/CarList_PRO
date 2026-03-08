@@ -25,6 +25,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.carlist.pro.R
 import com.carlist.pro.databinding.ActivityMainBinding
 import com.carlist.pro.domain.QueueItem
 import com.carlist.pro.domain.QueueManager
@@ -545,20 +546,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun setMicButtonOffState() {
         binding.btnClearList.text = "mic🔊/CLEAR LIST"
-        binding.btnClearList.backgroundTintList =
-            ColorStateList.valueOf(0xFFC53030.toInt())
+        binding.btnClearList.backgroundTintList = null
+        binding.btnClearList.setBackgroundResource(R.drawable.bg_button_clear_red_3d)
     }
 
     private fun setMicButtonListeningState() {
         binding.btnClearList.text = "say number"
-        binding.btnClearList.backgroundTintList =
-            ColorStateList.valueOf(0xFF2F855A.toInt())
+        binding.btnClearList.backgroundTintList = null
+        binding.btnClearList.setBackgroundResource(R.drawable.bg_button_clear_green_3d)
     }
 
     private fun showMicNotFoundStateTemporarily() {
         binding.btnClearList.text = "not found"
-        binding.btnClearList.backgroundTintList =
-            ColorStateList.valueOf(0xFFC53030.toInt())
+        binding.btnClearList.backgroundTintList = null
+        binding.btnClearList.setBackgroundResource(R.drawable.bg_button_clear_red_3d)
 
         gestureHandler.removeCallbacks(micRestoreSayNumberRunnable)
         gestureHandler.postDelayed(micRestoreSayNumberRunnable, 500L)
@@ -632,10 +633,6 @@ class MainActivity : AppCompatActivity() {
             TransportType.BUS -> sb.append("B")
             TransportType.VAN -> sb.append("V")
             TransportType.NONE -> {}
-        }
-
-        if (isMyCar) {
-            sb.append("M")
         }
 
         return sb.toString()
