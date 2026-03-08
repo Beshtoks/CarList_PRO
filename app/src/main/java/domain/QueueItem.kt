@@ -11,5 +11,5 @@ data class QueueItem(
     val status: Status = Status.NONE
 ) {
     val isActive: Boolean
-        get() = status != Status.SERVICE
+        get() = status != Status.SERVICE && status != Status.OFFICE
 }

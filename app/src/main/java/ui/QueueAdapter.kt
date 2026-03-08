@@ -6,9 +6,9 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.carlist.pro.databinding.ItemQueueCardBinding
 import com.carlist.pro.domain.QueueItem
+import com.carlist.pro.domain.Status
 import com.carlist.pro.domain.TransportInfo
 import com.carlist.pro.domain.TransportType
-import com.carlist.pro.domain.Status
 
 class QueueAdapter(
     private val transportInfoProvider: ((Int) -> TransportInfo)? = null,
@@ -57,25 +57,42 @@ class QueueAdapter(
             infoProvider: ((Int) -> TransportInfo)?,
             onCardShortTap: ((item: QueueItem, anchor: View) -> Unit)?
         ) {
+
             binding.numberText.text = item.number.toString()
 
             when (item.status) {
                 Status.NONE -> {
-                    binding.cardSurface.setBackgroundColor(0xFFA89774.toInt())
+                    binding.cardSurface.setBackgroundColor(0xFFE6D29C.toInt())
+                    binding.statusSmallText.visibility = View.GONE
+                    binding.statusSmallText.text = ""
                 }
-                Status.JURNIEKS -> {
-                    binding.cardSurface.setBackgroundColor(0xFF4B8DAB.toInt())
-                }
+
                 Status.SERVICE -> {
-                    binding.cardSurface.setBackgroundColor(0xFFAB54A2.toInt())
+                    binding.cardSurface.setBackgroundColor(0xFFFF91E7.toInt())
+                    binding.statusSmallText.visibility = View.VISIBLE
+                    binding.statusSmallText.text = "Service"
+                    binding.statusSmallText.setTextColor(0xFFFFE3FA.toInt())
+                }
+
+                Status.OFFICE -> {
+                    binding.cardSurface.setBackgroundColor(0xFFFF91E7.toInt())
+                    binding.statusSmallText.visibility = View.VISIBLE
+                    binding.statusSmallText.text = "Office"
+                    binding.statusSmallText.setTextColor(0xFFFFE3FA.toInt())
+                }
+
+                Status.JURNIEKS -> {
+                    binding.cardSurface.setBackgroundColor(0xFF0FDFFF.toInt())
+                    binding.statusSmallText.visibility = View.GONE
+                    binding.statusSmallText.text = ""
                 }
             }
 
-            // номер машины — тёмно-зелёный
             binding.numberText.setTextColor(0xFF0B3D0B.toInt())
-
-            // категория — тёмно-коричневая
             binding.categoryLetterText.setTextColor(0xFF3B2A18.toInt())
+            binding.numberText.setShadowLayer(0f, 0f, 0f, 0)
+            binding.categoryLetterText.setShadowLayer(0f, 0f, 0f, 0)
+            binding.statusSmallText.setShadowLayer(0f, 0f, 0f, 0)
 
             val info = infoProvider?.invoke(item.number) ?: TransportInfo()
 

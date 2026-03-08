@@ -5,13 +5,13 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
+import android.media.AudioManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
@@ -57,10 +57,6 @@ class MainActivity : AppCompatActivity() {
     private var pendingScrollToBottom = false
 
     private val gestureHandler = Handler(Looper.getMainLooper())
-    private val longPressTimeoutMs = ViewConfiguration.getLongPressTimeout().toLong()
-    private var inputPanelTouchActive = false
-    private var longPressTriggered = false
-    private var longPressRunnable: Runnable? = null
 
     private val techTapTimeoutRunnable = Runnable {
         if (techTapCount > 0 || techCountdownActive) {
@@ -210,6 +206,7 @@ class MainActivity : AppCompatActivity() {
                     adapter.moveForDrag(from, to)
                 },
                 onSwipedRight = { position ->
+                    playDeleteSwipeSound()
                     viewModel.removeAt(position)
                 },
                 onDragStateChanged = { dragging ->
@@ -234,55 +231,23 @@ class MainActivity : AppCompatActivity() {
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
 
-        if (!isTechMenuOpen) {
-            when (ev.actionMasked) {
+        if (!isTechMenuOpen && ev.actionMasked == MotionEvent.ACTION_UP) {
+            val releasedInsideInputPanel = isInsideInputPanel(ev.rawX, ev.rawY)
+            val releasedInsideCounterPanel = isInsideCounterPanel(ev.rawX, ev.rawY)
 
-                MotionEvent.ACTION_DOWN -> {
-                    val insideInputPanel = isInsideInputPanel(ev.rawX, ev.rawY)
-
-                    if (insideInputPanel) {
-                        inputPanelTouchActive = true
-                        longPressTriggered = false
-
-                        longPressRunnable = Runnable {
-                            if (!inputPanelTouchActive || isTechMenuOpen) return@Runnable
-
-                            longPressTriggered = true
-                            resetTechTapSequence()
-                            startManualInputMode()
-                        }
-
-                        gestureHandler.postDelayed(longPressRunnable!!, longPressTimeoutMs)
-                    } else {
-                        if (techTapCount > 0 || techCountdownActive) {
-                            resetTechTapSequence()
-                            applyInputVisualState(imeVisibleNow)
-                        }
-                        inputPanelTouchActive = false
-                    }
+            when {
+                releasedInsideInputPanel -> {
+                    resetTechTapSequence()
+                    startManualInputMode()
                 }
 
-                MotionEvent.ACTION_UP -> {
-                    if (inputPanelTouchActive) {
-                        longPressRunnable?.let { gestureHandler.removeCallbacks(it) }
-
-                        val releasedInside = isInsideInputPanel(ev.rawX, ev.rawY)
-
-                        if (releasedInside && !longPressTriggered) {
-                            handleTechTaps()
-                        } else if (!releasedInside && (techTapCount > 0 || techCountdownActive)) {
-                            resetTechTapSequence()
-                            applyInputVisualState(imeVisibleNow)
-                        }
-
-                        inputPanelTouchActive = false
-                    }
+                releasedInsideCounterPanel -> {
+                    handleTechTaps()
                 }
 
-                MotionEvent.ACTION_CANCEL -> {
-                    longPressRunnable?.let { gestureHandler.removeCallbacks(it) }
-                    inputPanelTouchActive = false
-                    longPressTriggered = false
+                techTapCount > 0 || techCountdownActive -> {
+                    resetTechTapSequence()
+                    applyInputVisualState(imeVisibleNow)
                 }
             }
         }
@@ -398,16 +363,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showStatusMenu(anchor: View, item: QueueItem) {
+
         val popup = PopupMenu(this, anchor)
 
         popup.menu.add("STANDARD")
         popup.menu.add("SERVICE")
+        popup.menu.add("OFFICE")
         popup.menu.add("JURNIEKS")
 
         popup.setOnMenuItemClickListener { menuItem ->
             when (menuItem.title.toString()) {
                 "STANDARD" -> viewModel.setStatus(item.number, Status.NONE)
                 "SERVICE" -> viewModel.setStatus(item.number, Status.SERVICE)
+                "OFFICE" -> viewModel.setStatus(item.number, Status.OFFICE)
                 "JURNIEKS" -> viewModel.setStatus(item.number, Status.JURNIEKS)
             }
             true
@@ -581,6 +549,7 @@ class MainActivity : AppCompatActivity() {
                 feedback.ok()
                 binding.numberInput.setText("")
             }
+
             QueueManager.AddResult.InvalidNumber,
             QueueManager.AddResult.DuplicateInQueue,
             QueueManager.AddResult.NotInRegistry -> {
@@ -613,6 +582,7 @@ class MainActivity : AppCompatActivity() {
 
             when (item.status) {
                 Status.SERVICE -> sb.append(" SERVICE")
+                Status.OFFICE -> sb.append(" OFFICE")
                 Status.JURNIEKS -> sb.append(" JURNIEKS")
                 Status.NONE -> {}
             }
@@ -707,8 +677,32 @@ class MainActivity : AppCompatActivity() {
         return rawX >= left && rawX <= right && rawY >= top && rawY <= bottom
     }
 
+    private fun isInsideCounterPanel(rawX: Float, rawY: Float): Boolean {
+        val location = IntArray(2)
+        binding.counterPanel.getLocationOnScreen(location)
+
+        val left = location[0]
+        val top = location[1]
+        val right = left + binding.counterPanel.width
+        val bottom = top + binding.counterPanel.height
+
+        return rawX >= left && rawX <= right && rawY >= top && rawY <= bottom
+    }
+
+    private fun playDeleteSwipeSound() {
+        val audioManager = getSystemService(AudioManager::class.java) ?: return
+        try {
+            audioManager.playSoundEffect(AudioManager.FX_FOCUS_NAVIGATION_RIGHT, 1.0f)
+        } catch (_: Throwable) {
+            try {
+                audioManager.playSoundEffect(AudioManager.FX_KEY_CLICK, 1.0f)
+            } catch (_: Throwable) {
+                // Без звука
+            }
+        }
+    }
+
     override fun onDestroy() {
-        longPressRunnable?.let { gestureHandler.removeCallbacks(it) }
         gestureHandler.removeCallbacks(techTapTimeoutRunnable)
         gestureHandler.removeCallbacks(micSilenceTimeoutRunnable)
         gestureHandler.removeCallbacks(micRestoreSayNumberRunnable)

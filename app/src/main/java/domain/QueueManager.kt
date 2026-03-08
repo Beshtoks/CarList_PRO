@@ -7,8 +7,8 @@ package com.carlist.pro.domain
  * If at least one ACTIVE exists anywhere in the list:
  * index 0 must be ACTIVE.
  *
- * PASSIVE = status == SERVICE
- * ACTIVE  = status != SERVICE
+ * PASSIVE = status == SERVICE || status == OFFICE
+ * ACTIVE  = all other statuses
  *
  * Auto-fix must run after any mutation:
  * add, remove, move, status change, replace, restore, validation cleanup.
@@ -99,7 +99,7 @@ class QueueManager {
         val moving = items[from]
 
         var target = to
-        if (moving.status == Status.SERVICE && to == 0 && hasAnyActive(excludingIndex = from)) {
+        if (isPassiveStatus(moving.status) && to == 0 && hasAnyActive(excludingIndex = from)) {
             target = 1.coerceAtMost(items.size - 1)
         }
 
@@ -242,7 +242,7 @@ class QueueManager {
 
         val first = items[0]
 
-        if (first.status != Status.SERVICE) return
+        if (!isPassiveStatus(first.status)) return
 
         val activeIndex = items.indexOfFirst { it.isActive }
 
@@ -250,6 +250,10 @@ class QueueManager {
 
         val activeItem = items.removeAt(activeIndex)
         items.add(0, activeItem)
+    }
+
+    private fun isPassiveStatus(status: Status): Boolean {
+        return status == Status.SERVICE || status == Status.OFFICE
     }
 
     private fun hasAnyActive(excludingIndex: Int?): Boolean {
