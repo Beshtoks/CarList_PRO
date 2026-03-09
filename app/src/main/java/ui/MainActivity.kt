@@ -634,7 +634,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val pos = viewModel.findMyCarPosition(queue)
-        binding.counterText.text = if (pos == null) "-/$total" else "$pos/$total"
+        binding.counterText.text = if (pos == null) "- /$total" else "$pos /$total"
     }
 
     private fun ensureMyCarVisible(queue: List<QueueItem>) {
