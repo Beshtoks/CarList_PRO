@@ -1,34 +1,56 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Нижняя опорная подложка -->
     <item android:top="3dp">
         <shape android:shape="rectangle">
             <corners android:radius="10dp"/>
-            <solid android:color="#7F1D1D"/>
+            <solid android:color="#7B1C1C"/>
         </shape>
     </item>
 
+    <!-- Основная поверхность -->
     <item android:bottom="3dp">
         <shape android:shape="rectangle">
             <corners android:radius="10dp"/>
             <gradient
                 android:angle="270"
-                android:startColor="#E35D5D"
+                android:startColor="#F26F6F"
                 android:centerColor="#C53030"
-                android:endColor="#962222"/>
+                android:endColor="#932121"/>
             <stroke
                 android:width="1dp"
-                android:color="#66FFD6D6"/>
+                android:color="#77FFDADA"/>
         </shape>
     </item>
 
-    <item android:left="1dp" android:right="1dp" android:top="1dp" android:bottom="22dp">
+    <!-- Внутренний верхний блик -->
+    <item
+        android:left="1dp"
+        android:right="1dp"
+        android:top="1dp"
+        android:bottom="24dp">
         <shape android:shape="rectangle">
             <corners android:radius="10dp"/>
             <gradient
                 android:angle="270"
-                android:startColor="#44FFFFFF"
+                android:startColor="#48FFFFFF"
                 android:endColor="#00FFFFFF"/>
+        </shape>
+    </item>
+
+    <!-- Очень мягкое внутреннее нижнее затемнение -->
+    <item
+        android:left="1dp"
+        android:right="1dp"
+        android:top="26dp"
+        android:bottom="4dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="10dp"/>
+            <gradient
+                android:angle="270"
+                android:startColor="#00000000"
+                android:endColor="#18000000"/>
         </shape>
     </item>
 
