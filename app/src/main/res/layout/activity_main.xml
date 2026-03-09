@@ -30,12 +30,24 @@
             app:cardCornerRadius="8dp"
             app:cardElevation="0dp"
             app:strokeWidth="2dp"
-            app:strokeColor="#505050"
-            app:cardBackgroundColor="#000000">
+            app:strokeColor="#5E5E5E"
+            app:cardBackgroundColor="#0A0A0A">
 
             <FrameLayout
                 android:layout_width="match_parent"
                 android:layout_height="match_parent">
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="8dp"
+                    android:layout_gravity="top"
+                    android:background="#26FFFFFF" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="6dp"
+                    android:layout_gravity="bottom"
+                    android:background="#18000000" />
 
                 <TextView
                     android:id="@+id/inputHint"
@@ -45,7 +57,7 @@
                     android:text="Nr / 🛠"
                     android:textSize="16sp"
                     android:textStyle="bold"
-                    android:textColor="#FFFFFF"/>
+                    android:textColor="#FFFFFF" />
 
                 <EditText
                     android:id="@+id/numberInput"
@@ -60,7 +72,7 @@
                     android:textStyle="bold"
                     android:textColor="#FFFFFF"
                     android:importantForAutofill="no"
-                    android:padding="0dp"/>
+                    android:padding="0dp" />
 
             </FrameLayout>
 
@@ -76,18 +88,36 @@
             app:cardCornerRadius="8dp"
             app:cardElevation="0dp"
             app:strokeWidth="2dp"
-            app:strokeColor="#505050"
-            app:cardBackgroundColor="#000000">
+            app:strokeColor="#5E5E5E"
+            app:cardBackgroundColor="#0A0A0A">
 
-            <TextView
-                android:id="@+id/infoText"
+            <FrameLayout
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:gravity="center"
-                android:text="SYNC OFF"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:textColor="#FFFFFF"/>
+                android:layout_height="match_parent">
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="8dp"
+                    android:layout_gravity="top"
+                    android:background="#22FFFFFF" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="6dp"
+                    android:layout_gravity="bottom"
+                    android:background="#18000000" />
+
+                <TextView
+                    android:id="@+id/infoText"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:text="SYNC OFF"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textColor="#F2F2F2" />
+
+            </FrameLayout>
 
         </com.google.android.material.card.MaterialCardView>
 
@@ -99,18 +129,36 @@
             app:cardCornerRadius="8dp"
             app:cardElevation="0dp"
             app:strokeWidth="2dp"
-            app:strokeColor="#505050"
-            app:cardBackgroundColor="#000000">
+            app:strokeColor="#5E5E5E"
+            app:cardBackgroundColor="#0A0A0A">
 
-            <TextView
-                android:id="@+id/counterText"
+            <FrameLayout
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:gravity="center"
-                android:text="-/-"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:textColor="#FFFFFF"/>
+                android:layout_height="match_parent">
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="8dp"
+                    android:layout_gravity="top"
+                    android:background="#26FFFFFF" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="6dp"
+                    android:layout_gravity="bottom"
+                    android:background="#18000000" />
+
+                <TextView
+                    android:id="@+id/counterText"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:text="-/-"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textColor="#FFFFFF" />
+
+            </FrameLayout>
 
         </com.google.android.material.card.MaterialCardView>
 
@@ -144,7 +192,7 @@
             app:backgroundTint="@null"
             app:cornerRadius="10dp"
             app:iconPadding="0dp"
-            app:rippleColor="#55FFFFFF"
+            app:rippleColor="#44FFFFFF"
             app:strokeWidth="0dp" />
 
         <com.google.android.material.button.MaterialButton
@@ -163,7 +211,7 @@
             app:backgroundTint="@null"
             app:cornerRadius="10dp"
             app:iconPadding="0dp"
-            app:rippleColor="#55FFFFFF"
+            app:rippleColor="#44FFFFFF"
             app:strokeWidth="0dp" />
 
     </LinearLayout>
@@ -178,6 +226,6 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        tools:listitem="@layout/item_queue_card"/>
+        tools:listitem="@layout/item_queue_card" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>
