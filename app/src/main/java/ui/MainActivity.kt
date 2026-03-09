@@ -60,6 +60,8 @@ class MainActivity : AppCompatActivity() {
     private var lastQueueSize = 0
     private var pendingScrollToBottom = false
 
+    private var lastAutoCopiedText = ""
+
     private val gestureHandler = Handler(Looper.getMainLooper())
 
     private val techTapTimeoutRunnable = Runnable {
@@ -182,8 +184,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            if (autoCopyEnabled) copyQueueOnce(list)
-
             lastQueueSize = newSize
         }
 
@@ -212,12 +212,14 @@ class MainActivity : AppCompatActivity() {
                 onSwipedRight = { position ->
                     playDeleteSwipeSound()
                     viewModel.removeAt(position)
+                    requestAutoCopyIfNeeded()
                 },
                 onDragStateChanged = { dragging ->
                     isDragging = dragging
                 },
                 onDragEnded = { _, _ ->
                     viewModel.commitDrag()
+                    requestAutoCopyIfNeeded()
                 }
             )
         )
@@ -389,6 +391,8 @@ class MainActivity : AppCompatActivity() {
                 menuItem.title.toString() == "JURNIEKS" ->
                     viewModel.setStatus(item.number, Status.JURNIEKS)
             }
+
+            requestAutoCopyIfNeeded()
             true
         }
 
@@ -457,6 +461,7 @@ class MainActivity : AppCompatActivity() {
                 .setMessage("Are you sure?")
                 .setPositiveButton("YES") { _, _ ->
                     viewModel.clear()
+                    lastAutoCopiedText = ""
                     feedback.ok()
                 }
                 .setNegativeButton("NO", null)
@@ -522,6 +527,7 @@ class MainActivity : AppCompatActivity() {
             is QueueManager.AddResult.Added -> {
                 feedback.ok()
                 setMicButtonListeningState()
+                requestAutoCopyIfNeeded()
             }
 
             QueueManager.AddResult.InvalidNumber,
@@ -574,6 +580,7 @@ class MainActivity : AppCompatActivity() {
             is QueueManager.AddResult.Added -> {
                 feedback.ok()
                 binding.numberInput.setText("")
+                requestAutoCopyIfNeeded()
             }
 
             QueueManager.AddResult.InvalidNumber,
@@ -585,8 +592,31 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun requestAutoCopyIfNeeded() {
+        if (!autoCopyEnabled) return
+
+        binding.root.post {
+            autoCopyIfQueueChanged(viewModel.queueItems.value.orEmpty())
+        }
+    }
+
+    private fun autoCopyIfQueueChanged(list: List<QueueItem>) {
+        val text = buildQueueText(list)
+
+        if (text.isBlank()) return
+        if (text == lastAutoCopiedText) return
+
+        copyQueueText(text)
+        lastAutoCopiedText = text
+    }
+
     private fun copyQueueOnce(list: List<QueueItem>) {
         val text = buildQueueText(list)
+        copyQueueText(text)
+        lastAutoCopiedText = text
+    }
+
+    private fun copyQueueText(text: String) {
         val cm = getSystemService(ClipboardManager::class.java)
         cm.setPrimaryClip(ClipData.newPlainText("CarList_PRO Queue", text))
     }
