@@ -4,6 +4,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
+import com.carlist.pro.R
 import com.carlist.pro.databinding.ItemQueueCardBinding
 import com.carlist.pro.domain.QueueItem
 import com.carlist.pro.domain.Status
@@ -57,32 +58,31 @@ class QueueAdapter(
             infoProvider: ((Int) -> TransportInfo)?,
             onCardShortTap: ((item: QueueItem, anchor: View) -> Unit)?
         ) {
-
             binding.numberText.text = item.number.toString()
 
             when (item.status) {
                 Status.NONE -> {
-                    binding.cardSurface.setBackgroundColor(0xFFE6D29C.toInt())
+                    binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_standard_3d)
                     binding.statusSmallText.visibility = View.GONE
                     binding.statusSmallText.text = ""
                 }
 
                 Status.SERVICE -> {
-                    binding.cardSurface.setBackgroundColor(0xFFFF91E7.toInt())
+                    binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_service_3d)
                     binding.statusSmallText.visibility = View.VISIBLE
                     binding.statusSmallText.text = "Service"
                     binding.statusSmallText.setTextColor(0xFFFFE3FA.toInt())
                 }
 
                 Status.OFFICE -> {
-                    binding.cardSurface.setBackgroundColor(0xFFFF91E7.toInt())
+                    binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_service_3d)
                     binding.statusSmallText.visibility = View.VISIBLE
                     binding.statusSmallText.text = "Office"
                     binding.statusSmallText.setTextColor(0xFFFFE3FA.toInt())
                 }
 
                 Status.JURNIEKS -> {
-                    binding.cardSurface.setBackgroundColor(0xFF0FDFFF.toInt())
+                    binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_jurnieks_3d)
                     binding.statusSmallText.visibility = View.GONE
                     binding.statusSmallText.text = ""
                 }
@@ -90,6 +90,7 @@ class QueueAdapter(
 
             binding.numberText.setTextColor(0xFF0B3D0B.toInt())
             binding.categoryLetterText.setTextColor(0xFF3B2A18.toInt())
+
             binding.numberText.setShadowLayer(0f, 0f, 0f, 0)
             binding.categoryLetterText.setShadowLayer(0f, 0f, 0f, 0)
             binding.statusSmallText.setShadowLayer(0f, 0f, 0f, 0)

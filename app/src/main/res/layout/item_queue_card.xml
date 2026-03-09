@@ -24,31 +24,7 @@
             android:id="@+id/cardSurface"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="#E6D29C" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="8dp"
-            android:layout_gravity="top"
-            android:background="#30FFFFFF" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="6dp"
-            android:layout_gravity="bottom"
-            android:background="#18000000" />
-
-        <View
-            android:layout_width="8dp"
-            android:layout_height="match_parent"
-            android:layout_gravity="start"
-            android:background="#10FFFFFF" />
-
-        <View
-            android:layout_width="8dp"
-            android:layout_height="match_parent"
-            android:layout_gravity="end"
-            android:background="#10000000" />
+            android:background="@drawable/bg_queue_card_standard_3d" />
 
         <TextView
             android:id="@+id/categoryLetterText"
@@ -58,7 +34,7 @@
             android:layout_marginStart="6dp"
             android:gravity="center"
             android:text=""
-            android:textColor="#111111"
+            android:textColor="#3B2A18"
             android:textSize="26sp"
             android:textStyle="bold"
             android:visibility="gone" />
@@ -69,7 +45,7 @@
             android:layout_height="match_parent"
             android:gravity="center"
             android:text="12"
-            android:textColor="#000000"
+            android:textColor="#0B3D0B"
             android:textSize="28sp"
             android:textStyle="bold" />
 
