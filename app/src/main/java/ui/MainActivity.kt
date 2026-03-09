@@ -19,6 +19,7 @@ import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import androidx.core.content.ContextCompat
@@ -37,13 +38,6 @@ import com.carlist.pro.domain.TransportType
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class MainActivity : AppCompatActivity() {
-
-    private companion object {
-        const val MENU_STATUS_STANDARD = 1001
-        const val MENU_STATUS_SERVICE = 1002
-        const val MENU_STATUS_OFFICE = 1003
-        const val MENU_STATUS_JURNIEKS = 1004
-    }
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var viewModel: MainViewModel
@@ -376,40 +370,17 @@ class MainActivity : AppCompatActivity() {
 
         val popup = PopupMenu(this, anchor)
 
-        popup.menu.add(
-            0,
-            MENU_STATUS_STANDARD,
-            0,
-            coloredTitle("STANDARD  ${item.number}", 0xFFE6D29C.toInt())
-        )
-
-        popup.menu.add(
-            0,
-            MENU_STATUS_SERVICE,
-            1,
-            coloredTitle("SERVICE", 0xFFFF91E7.toInt())
-        )
-
-        popup.menu.add(
-            0,
-            MENU_STATUS_OFFICE,
-            2,
-            coloredTitle("OFFICE", 0xFFFF91E7.toInt())
-        )
-
-        popup.menu.add(
-            0,
-            MENU_STATUS_JURNIEKS,
-            3,
-            coloredTitle("JURNIEKS", 0xFF0FDFFF.toInt())
-        )
+        popup.menu.add(coloredTitle("STANDARD", 0xFFE6D29C.toInt()))
+        popup.menu.add(coloredTitle("SERVICE", 0xFFFF91E7.toInt()))
+        popup.menu.add(coloredTitle("OFFICE", 0xFFFF91E7.toInt()))
+        popup.menu.add(coloredTitle("JURNIEKS", 0xFF0FDFFF.toInt()))
 
         popup.setOnMenuItemClickListener { menuItem ->
-            when (menuItem.itemId) {
-                MENU_STATUS_STANDARD -> viewModel.setStatus(item.number, Status.NONE)
-                MENU_STATUS_SERVICE -> viewModel.setStatus(item.number, Status.SERVICE)
-                MENU_STATUS_OFFICE -> viewModel.setStatus(item.number, Status.OFFICE)
-                MENU_STATUS_JURNIEKS -> viewModel.setStatus(item.number, Status.JURNIEKS)
+            when (menuItem.title.toString()) {
+                "STANDARD" -> viewModel.setStatus(item.number, Status.NONE)
+                "SERVICE" -> viewModel.setStatus(item.number, Status.SERVICE)
+                "OFFICE" -> viewModel.setStatus(item.number, Status.OFFICE)
+                "JURNIEKS" -> viewModel.setStatus(item.number, Status.JURNIEKS)
             }
             true
         }
@@ -474,7 +445,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnClearList.setOnLongClickListener {
-            MaterialAlertDialogBuilder(this)
+            val dialog = MaterialAlertDialogBuilder(this)
                 .setTitle("CLEAR LIST")
                 .setMessage("Are you sure?")
                 .setPositiveButton("YES") { _, _ ->
@@ -483,6 +454,10 @@ class MainActivity : AppCompatActivity() {
                 }
                 .setNegativeButton("NO", null)
                 .show()
+
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(0xFFFF8A8A.toInt())
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(0xFFFFFFFF.toInt())
+
             true
         }
     }

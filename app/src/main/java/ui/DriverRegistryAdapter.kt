@@ -1,6 +1,9 @@
 package com.carlist.pro.ui
 
 import android.text.InputType
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.ViewGroup
@@ -50,6 +53,7 @@ class DriverRegistryAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
 
         fun bind(row: RegistryRow, position: Int) {
+
             val asText = row.number?.toString().orEmpty()
 
             forceNumericMode()
@@ -66,6 +70,7 @@ class DriverRegistryAdapter(
                 UnderlineState.BLUE -> 0xFF2B6CB0.toInt()
                 UnderlineState.RED -> 0xFFC53030.toInt()
             }
+
             binding.underline.setBackgroundColor(underlineColor)
 
             binding.root.setOnClickListener {
@@ -122,26 +127,47 @@ class DriverRegistryAdapter(
             }
 
             binding.root.setOnLongClickListener {
+
                 val num = row.number ?: return@setOnLongClickListener true
 
                 val popup = PopupMenu(binding.root.context, binding.root)
 
-                popup.menu.add("BUS")
+                /* BUS + номер карточки */
+
+                popup.menu.add("BUS      $num")
+
                 popup.menu.add("VAN")
                 popup.menu.add("MY_CAR")
-                popup.menu.add("CLEAR")
+
+                /* CLEAR CATEGORY красным */
+
+                val clearTitle = SpannableString("CLEAR CATEGORY")
+
+                clearTitle.setSpan(
+                    ForegroundColorSpan(0xFFFF8A8A.toInt()),
+                    0,
+                    clearTitle.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+
+                popup.menu.add(clearTitle)
 
                 popup.setOnMenuItemClickListener { item ->
-                    when (item.title.toString()) {
-                        "BUS" -> onCategoryAction(num, CategoryAction.BUS)
-                        "VAN" -> onCategoryAction(num, CategoryAction.VAN)
-                        "MY_CAR" -> onCategoryAction(num, CategoryAction.MY_CAR)
-                        "CLEAR" -> onCategoryAction(num, CategoryAction.CLEAR)
+
+                    val title = item.title.toString()
+
+                    when {
+                        title.startsWith("BUS") -> onCategoryAction(num, CategoryAction.BUS)
+                        title == "VAN" -> onCategoryAction(num, CategoryAction.VAN)
+                        title == "MY_CAR" -> onCategoryAction(num, CategoryAction.MY_CAR)
+                        title == "CLEAR CATEGORY" -> onCategoryAction(num, CategoryAction.CLEAR)
                     }
+
                     true
                 }
 
                 popup.show()
+
                 true
             }
         }
