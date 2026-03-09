@@ -370,17 +370,24 @@ class MainActivity : AppCompatActivity() {
 
         val popup = PopupMenu(this, anchor)
 
-        popup.menu.add(coloredTitle("STANDARD", 0xFFE6D29C.toInt()))
+        popup.menu.add(coloredTitle("STANDARD   ${item.number}", 0xFFE6D29C.toInt()))
         popup.menu.add(coloredTitle("SERVICE", 0xFFFF91E7.toInt()))
         popup.menu.add(coloredTitle("OFFICE", 0xFFFF91E7.toInt()))
         popup.menu.add(coloredTitle("JURNIEKS", 0xFF0FDFFF.toInt()))
 
         popup.setOnMenuItemClickListener { menuItem ->
-            when (menuItem.title.toString()) {
-                "STANDARD" -> viewModel.setStatus(item.number, Status.NONE)
-                "SERVICE" -> viewModel.setStatus(item.number, Status.SERVICE)
-                "OFFICE" -> viewModel.setStatus(item.number, Status.OFFICE)
-                "JURNIEKS" -> viewModel.setStatus(item.number, Status.JURNIEKS)
+            when {
+                menuItem.title.toString().startsWith("STANDARD") ->
+                    viewModel.setStatus(item.number, Status.NONE)
+
+                menuItem.title.toString() == "SERVICE" ->
+                    viewModel.setStatus(item.number, Status.SERVICE)
+
+                menuItem.title.toString() == "OFFICE" ->
+                    viewModel.setStatus(item.number, Status.OFFICE)
+
+                menuItem.title.toString() == "JURNIEKS" ->
+                    viewModel.setStatus(item.number, Status.JURNIEKS)
             }
             true
         }
