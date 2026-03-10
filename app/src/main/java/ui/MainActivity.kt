@@ -5,6 +5,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
 import android.os.Bundle
 import android.os.Handler
@@ -12,12 +15,16 @@ import android.os.Looper
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -620,37 +627,71 @@ class MainActivity : AppCompatActivity() {
     private fun showInputProblemDialog(message: String) {
         if (isFinishing || isDestroyed) return
 
-        val title = SpannableString("INPUT ERROR").apply {
-            setSpan(
-                ForegroundColorSpan(0xFFFF4444.toInt()),
-                0,
-                length,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        val density = resources.displayMetrics.density
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(
+                (24 * density).toInt(),
+                (20 * density).toInt(),
+                (24 * density).toInt(),
+                (18 * density).toInt()
             )
+
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 18f * density
+                setColor(0xFF1A001F.toInt())
+                setStroke((1 * density).toInt(), 0xFF3A1A3F.toInt())
+            }
         }
 
-        val msg = SpannableString(message).apply {
-            setSpan(
-                ForegroundColorSpan(0xFFFFFFFF.toInt()),
-                0,
-                length,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
+        val titleView = TextView(this).apply {
+            text = "INPUT ERROR"
+            setTextColor(0xFFFF4444.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            gravity = Gravity.CENTER
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
         }
 
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(title)
-            .setMessage(msg)
+        val messageView = TextView(this).apply {
+            text = message
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            gravity = Gravity.CENTER
+            setPadding(0, (10 * density).toInt(), 0, 0)
+        }
+
+        container.addView(
+            titleView,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        container.addView(
+            messageView,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(container)
             .create()
 
         dialog.setCancelable(false)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         dialog.show()
 
         gestureHandler.postDelayed({
             if (dialog.isShowing) {
                 dialog.dismiss()
             }
-        }, 1000L)
+        }, 1500L)
     }
 
     private fun requestAutoCopyIfNeeded() {
