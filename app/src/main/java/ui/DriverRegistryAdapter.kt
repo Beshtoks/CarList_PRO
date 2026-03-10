@@ -132,24 +132,45 @@ class DriverRegistryAdapter(
 
                 val popup = PopupMenu(binding.root.context, binding.root)
 
-                /* BUS + номер карточки */
+                val busTitle = SpannableString("BUS      $num").apply {
+                    setSpan(
+                        ForegroundColorSpan(0xFFFFFFFF.toInt()),
+                        0,
+                        length,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
 
-                popup.menu.add("BUS      $num")
+                val vanTitle = SpannableString("VAN").apply {
+                    setSpan(
+                        ForegroundColorSpan(0xFFFFFFFF.toInt()),
+                        0,
+                        length,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
 
-                popup.menu.add("VAN")
-                popup.menu.add("MY_CAR")
+                val myCarTitle = SpannableString("MY_CAR").apply {
+                    setSpan(
+                        ForegroundColorSpan(0xFFFFD54A.toInt()),
+                        0,
+                        length,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
 
-                /* CLEAR CATEGORY красным */
+                val clearTitle = SpannableString("CLEAR CATEGORY").apply {
+                    setSpan(
+                        ForegroundColorSpan(0xFFFF8A8A.toInt()),
+                        0,
+                        length,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
 
-                val clearTitle = SpannableString("CLEAR CATEGORY")
-
-                clearTitle.setSpan(
-                    ForegroundColorSpan(0xFFFF8A8A.toInt()),
-                    0,
-                    clearTitle.length,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-
+                popup.menu.add(busTitle)
+                popup.menu.add(vanTitle)
+                popup.menu.add(myCarTitle)
                 popup.menu.add(clearTitle)
 
                 popup.setOnMenuItemClickListener { item ->
