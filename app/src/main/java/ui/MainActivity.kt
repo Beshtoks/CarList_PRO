@@ -61,6 +61,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingScrollToBottom = false
 
     private var lastAutoCopiedText = ""
+    private var suppressNextQueueAutoScroll = false
 
     private val gestureHandler = Handler(Looper.getMainLooper())
 
@@ -170,15 +171,19 @@ class MainActivity : AppCompatActivity() {
             if (!isDragging) {
                 adapter.submitItems(list)
 
-                binding.queueRecycler.post {
-                    when {
-                        !isTechMenuOpen && pendingScrollToBottom && list.isNotEmpty() -> {
-                            val last = list.lastIndex
-                            layoutManager.scrollToPositionWithOffset(last, 0)
-                        }
+                if (suppressNextQueueAutoScroll) {
+                    suppressNextQueueAutoScroll = false
+                } else {
+                    binding.queueRecycler.post {
+                        when {
+                            !isTechMenuOpen && pendingScrollToBottom && list.isNotEmpty() -> {
+                                val last = list.lastIndex
+                                layoutManager.scrollToPositionWithOffset(last, 0)
+                            }
 
-                        !isTechMenuOpen && list.isNotEmpty() -> {
-                            ensureMyCarVisible(list)
+                            !isTechMenuOpen && list.isNotEmpty() -> {
+                                ensureMyCarVisible(list)
+                            }
                         }
                     }
                 }
@@ -267,6 +272,10 @@ class MainActivity : AppCompatActivity() {
         isTechMenuOpen = false
         resetTechTapSequence()
         applyInputVisualState(imeVisibleNow)
+
+        val currentQueue = viewModel.queueItems.value.orEmpty()
+        adapter.submitItems(currentQueue)
+        updateMyCarCounter(currentQueue)
     }
 
     private fun setupInputPanel() {
@@ -378,6 +387,8 @@ class MainActivity : AppCompatActivity() {
         popup.menu.add(coloredTitle("JURNIEKS", 0xFF0FDFFF.toInt()))
 
         popup.setOnMenuItemClickListener { menuItem ->
+            suppressNextQueueAutoScroll = true
+
             when {
                 menuItem.title.toString().startsWith("STANDARD") ->
                     viewModel.setStatus(item.number, Status.NONE)
@@ -495,6 +506,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         micSessionActive = true
+        feedback.setSoundEnabled(false)
         setMicButtonListeningState()
         restartMicSilenceTimer()
         scheduleNextVoiceListen()
@@ -502,6 +514,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun stopMicSession() {
         micSessionActive = false
+        feedback.setSoundEnabled(true)
         gestureHandler.removeCallbacks(micSilenceTimeoutRunnable)
         gestureHandler.removeCallbacks(micRestoreSayNumberRunnable)
         voiceInputManager.stopListening()
@@ -530,10 +543,16 @@ class MainActivity : AppCompatActivity() {
                 requestAutoCopyIfNeeded()
             }
 
-            QueueManager.AddResult.InvalidNumber,
-            QueueManager.AddResult.DuplicateInQueue,
-            QueueManager.AddResult.NotInRegistry -> {
+            QueueManager.AddResult.DuplicateInQueue -> {
                 feedback.error()
+                showInputProblemDialog("DUPLICATE NUMBER")
+                showMicNotFoundStateTemporarily()
+            }
+
+            QueueManager.AddResult.NotInRegistry,
+            QueueManager.AddResult.InvalidNumber -> {
+                feedback.error()
+                showInputProblemDialog("NOT IN REGISTRY")
                 showMicNotFoundStateTemporarily()
             }
         }
@@ -583,13 +602,55 @@ class MainActivity : AppCompatActivity() {
                 requestAutoCopyIfNeeded()
             }
 
-            QueueManager.AddResult.InvalidNumber,
-            QueueManager.AddResult.DuplicateInQueue,
-            QueueManager.AddResult.NotInRegistry -> {
+            QueueManager.AddResult.DuplicateInQueue -> {
                 feedback.error()
                 binding.numberInput.setText("")
+                showInputProblemDialog("DUPLICATE NUMBER")
+            }
+
+            QueueManager.AddResult.NotInRegistry,
+            QueueManager.AddResult.InvalidNumber -> {
+                feedback.error()
+                binding.numberInput.setText("")
+                showInputProblemDialog("NOT IN REGISTRY")
             }
         }
+    }
+
+    private fun showInputProblemDialog(message: String) {
+        if (isFinishing || isDestroyed) return
+
+        val title = SpannableString("INPUT ERROR").apply {
+            setSpan(
+                ForegroundColorSpan(0xFFFF4444.toInt()),
+                0,
+                length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+
+        val msg = SpannableString(message).apply {
+            setSpan(
+                ForegroundColorSpan(0xFFFFFFFF.toInt()),
+                0,
+                length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(title)
+            .setMessage(msg)
+            .create()
+
+        dialog.setCancelable(false)
+        dialog.show()
+
+        gestureHandler.postDelayed({
+            if (dialog.isShowing) {
+                dialog.dismiss()
+            }
+        }, 1000L)
     }
 
     private fun requestAutoCopyIfNeeded() {

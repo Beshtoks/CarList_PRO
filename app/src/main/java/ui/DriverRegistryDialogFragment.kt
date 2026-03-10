@@ -24,11 +24,24 @@ class DriverRegistryDialogFragment : DialogFragment() {
     private lateinit var adapter: DriverRegistryAdapter
     private lateinit var viewModel: MainViewModel
 
+    private var suppressNextRegistryAutoFocus = false
+
+    companion object {
+        private val DEFAULT_REGISTRY_NUMBERS = listOf(
+            2, 3, 5, 8, 10, 11, 12, 13, 14, 15, 17, 19,
+            21, 22, 23, 25, 26, 29, 30, 31, 32, 37, 38, 40, 45,
+            48, 49, 53, 57, 64, 66, 69, 73, 74, 76, 77, 78, 79,
+            80, 84, 89, 92, 96, 99
+        )
+    }
+
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         _binding = DialogDriverRegistryBinding.inflate(LayoutInflater.from(requireContext()))
 
         val main = activity as MainActivity
         viewModel = main.getMainViewModel()
+
+        ensureDefaultRegistryLoaded()
 
         adapter = DriverRegistryAdapter(
             getItems = { viewModel.getRegistryRows() },
@@ -37,6 +50,7 @@ class DriverRegistryDialogFragment : DialogFragment() {
                 viewModel.commitRegistryNumber(pos, old, txt)
             },
             onCategoryAction = { number, action ->
+                suppressNextRegistryAutoFocus = true
                 viewModel.onRegistryCategoryAction(number, action)
             }
         )
@@ -52,6 +66,12 @@ class DriverRegistryDialogFragment : DialogFragment() {
 
         viewModel.registryUiTick.observe(this) {
             adapter.refresh()
+
+            if (suppressNextRegistryAutoFocus) {
+                suppressNextRegistryAutoFocus = false
+                return@observe
+            }
+
             focusActiveFieldAndShowKeyboard()
         }
 
@@ -88,6 +108,24 @@ class DriverRegistryDialogFragment : DialogFragment() {
             adapter.refresh()
             focusActiveFieldAndShowKeyboard()
         }
+    }
+
+    private fun ensureDefaultRegistryLoaded() {
+        val rows = viewModel.getRegistryRows()
+
+        val hasAnyNumber = rows.any { it.number != null }
+        if (hasAnyNumber) return
+
+        DEFAULT_REGISTRY_NUMBERS.forEachIndexed { index, number ->
+            val oldNumber = rows.getOrNull(index)?.number
+            viewModel.commitRegistryNumber(
+                index,
+                oldNumber,
+                number.toString()
+            )
+        }
+
+        viewModel.setRegistryActiveRow(0)
     }
 
     private fun focusActiveFieldAndShowKeyboard() {
