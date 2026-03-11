@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "900757580649",
+    "project_id": "carlistpro-74aaf",
+    "storage_bucket": "carlistpro-74aaf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:900757580649:android:30e28269a85b85f500abf8",
+        "android_client_info": {
+          "package_name": "com.carlist.pro"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDN-zMi3ZRKn4QDwlAllLHatHA0L0IjO64"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -8,10 +8,10 @@
             <InsightsFilterSettings>
               <option name="connection">
                 <ConnectionSetting>
-                  <option name="appId" value="PLACEHOLDER" />
-                  <option name="mobileSdkAppId" value="" />
-                  <option name="projectId" value="" />
-                  <option name="projectNumber" value="" />
+                  <option name="appId" value="com.carlist.pro" />
+                  <option name="mobileSdkAppId" value="1:900757580649:android:30e28269a85b85f500abf8" />
+                  <option name="projectId" value="carlistpro-74aaf" />
+                  <option name="projectNumber" value="900757580649" />
                 </ConnectionSetting>
               </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />

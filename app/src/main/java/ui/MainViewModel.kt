@@ -6,17 +6,24 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import com.carlist.pro.data.DriverRegistryStore
 import com.carlist.pro.data.QueueStateStore
+import com.carlist.pro.data.sync.FirebaseSyncRepository
+import com.carlist.pro.data.sync.NetworkMonitor
 import com.carlist.pro.domain.QueueItem
 import com.carlist.pro.domain.QueueManager
 import com.carlist.pro.domain.Status
 import com.carlist.pro.domain.TransportInfo
 import com.carlist.pro.domain.TransportType
+import com.carlist.pro.domain.sync.RemoteQueueSnapshot
+import com.carlist.pro.domain.sync.SyncOffer
+import com.carlist.pro.domain.sync.SyncState
 
-class MainViewModel(app: Application) : AndroidViewModel(app) {
+class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepository.Callback {
 
     private val queueManager = QueueManager()
     private val registryStore = DriverRegistryStore(app.applicationContext)
     private val queueStateStore = QueueStateStore(app.applicationContext)
+    private val networkMonitor = NetworkMonitor(app.applicationContext)
+    private val syncRepository = FirebaseSyncRepository(app.applicationContext)
 
     private val _queueItems = MutableLiveData<List<QueueItem>>(emptyList())
     val queueItems: LiveData<List<QueueItem>> = _queueItems
@@ -24,15 +31,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _registryUiTick = MutableLiveData<Long>(0L)
     val registryUiTick: LiveData<Long> = _registryUiTick
 
+    private val _syncState = MutableLiveData<SyncState>(SyncState.Off)
+    val syncState: LiveData<SyncState> = _syncState
+
+    private val _syncPanelText = MutableLiveData("SYNC OFF")
+    val syncPanelText: LiveData<String> = _syncPanelText
+
+    private val _syncMessage = MutableLiveData<String?>(null)
+    val syncMessage: LiveData<String?> = _syncMessage
+
+    private val _syncOffer = MutableLiveData<SyncOffer?>(null)
+    val syncOffer: LiveData<SyncOffer?> = _syncOffer
+
+    private var syncEnabled = false
     private var activeRowIndex: Int = 0
     private var lastCommitFailedRow: Int? = null
 
     init {
-
         val snapshot = queueStateStore.load()
 
         if (snapshot.isNotEmpty()) {
-
             queueManager.restoreFromSnapshot(
                 snapshot = snapshot,
                 isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
@@ -41,7 +59,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             queueManager.validateAgainstRegistry { registryStore.isAllowed(it) }
         }
 
+        networkMonitor.start { isOnline ->
+            if (syncEnabled && !isOnline) {
+                syncEnabled = false
+                syncRepository.stop()
+                setSyncState(SyncState.NoNetwork)
+                _syncMessage.postValue("No network connection")
+                return@start
+            }
+
+            if (!syncEnabled) {
+                refreshSyncPanelState()
+            }
+        }
+
         publishSnapshot()
+        refreshSyncPanelState()
     }
 
     fun addNumber(numberOrNull: Int?): QueueManager.AddResult {
@@ -53,6 +86,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             number = number,
             isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
         )
+
         publishSnapshot()
         return result
     }
@@ -105,13 +139,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun getRegistryRows(): List<RegistryRow> {
-
         val numbers = registryStore.getAllowedNumbers()
-
         val rows = mutableListOf<RegistryRow>()
 
         numbers.forEachIndexed { idx, n ->
-
             val underline = when {
                 lastCommitFailedRow == idx -> UnderlineState.RED
                 idx == activeRowIndex -> UnderlineState.BLUE
@@ -152,12 +183,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun getRegistryActiveRow(): Int = activeRowIndex
 
     fun commitRegistryNumber(position: Int, oldNumber: Int?, newText: String): CommitResult {
-
         val trimmed = newText.trim()
         val newNumber = trimmed.toIntOrNull()
 
         if (trimmed.isBlank()) {
-
             if (oldNumber != null) {
                 registryStore.removeNumber(oldNumber)
                 queueManager.removeByNumber(oldNumber)
@@ -168,6 +197,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             activeRowIndex = position.coerceAtLeast(0)
 
             tickRegistry()
+            refreshSyncPanelState()
             return CommitResult.OK
         }
 
@@ -186,7 +216,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         if (oldNumber != null && oldNumber != newNumber) {
-
             queueManager.replaceNumber(
                 oldNumber = oldNumber,
                 newNumber = newNumber,
@@ -200,6 +229,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         activeRowIndex = (position + 1).coerceAtLeast(0)
 
         tickRegistry()
+        refreshSyncPanelState()
         return CommitResult.OK
     }
 
@@ -208,10 +238,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         activeRowIndex = 0
         lastCommitFailedRow = null
         tickRegistry()
+        refreshSyncPanelState()
     }
 
     fun onRegistryCategoryAction(number: Int, action: DriverRegistryAdapter.CategoryAction) {
-
         when (action) {
             DriverRegistryAdapter.CategoryAction.BUS ->
                 setRegistryTransportType(number, TransportType.BUS)
@@ -235,11 +265,68 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleRegistryMyCar(number: Int) {
         registryStore.toggleMyCar(number)
         tickRegistry()
+        refreshSyncPanelState()
     }
 
     fun clearRegistryCategories(number: Int) {
         registryStore.clearCategories(number)
         tickRegistry()
+        refreshSyncPanelState()
+    }
+
+    fun onServerPanelLongPress() {
+        if (syncEnabled) {
+            stopSync()
+            return
+        }
+
+        if (!networkMonitor.isCurrentlyOnline()) {
+            setSyncState(SyncState.NoNetwork)
+            _syncMessage.value = "No network connection"
+            return
+        }
+
+        if (registryStore.getMyCar() == null) {
+            setSyncState(SyncState.NeedMyCar)
+            _syncMessage.value = "Для синхронизации сначала укажи личный номер в категории MY CAR."
+            return
+        }
+
+        syncEnabled = true
+        setSyncState(SyncState.Connecting)
+        syncRepository.start(this)
+    }
+
+    fun onSyncMessageShown() {
+        _syncMessage.value = null
+    }
+
+    override fun onSyncStateChanged(state: SyncState) {
+        setSyncState(state)
+    }
+
+    override fun onRemoteSnapshot(snapshot: RemoteQueueSnapshot) {
+        val offer = SyncOffer(
+            snapshot = snapshot,
+            secondsRemaining = snapshot.offerSecondsRemaining()
+        )
+        _syncOffer.postValue(offer)
+    }
+
+    override fun onBlocked(reason: String) {
+        _syncMessage.postValue(reason)
+    }
+
+    override fun onCleared() {
+        syncRepository.stop()
+        networkMonitor.stop()
+        super.onCleared()
+    }
+
+    private fun stopSync() {
+        syncEnabled = false
+        syncRepository.stop()
+        setSyncState(SyncState.Off)
     }
 
     private fun tickRegistry() {
@@ -247,11 +334,41 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun publishSnapshot() {
-
         val snap = queueManager.snapshot()
-
         _queueItems.value = snap
-
         queueStateStore.save(snap)
+    }
+
+    private fun refreshSyncPanelState() {
+        if (syncEnabled) return
+
+        val nextState = when {
+            !networkMonitor.isCurrentlyOnline() -> SyncState.NoNetwork
+            registryStore.getMyCar() == null -> SyncState.NeedMyCar
+            else -> SyncState.Off
+        }
+
+        setSyncState(nextState)
+    }
+
+    private fun setSyncState(state: SyncState) {
+        _syncState.postValue(state)
+        _syncPanelText.postValue(renderSyncText(state))
+    }
+
+    private fun renderSyncText(state: SyncState): String {
+        return when (state) {
+            SyncState.Off -> "SYNC OFF"
+            SyncState.Connecting -> "CONNECTING..."
+            SyncState.NeedMyCar -> "SET MY CAR"
+            SyncState.OnlineFree -> "SYNC ON"
+            SyncState.NoNetwork -> "NO NETWORK"
+            is SyncState.OfferAvailable -> "OFFER ${state.secondsLeft}s"
+            is SyncState.LockedByMe -> "CHANGE LIST ${state.secondsLeft}s"
+            is SyncState.LockedByOther -> {
+                val owner = state.ownerNumber?.toString() ?: "?"
+                "CHANGE $owner ${state.secondsLeft}s"
+            }
+        }
     }
 }
