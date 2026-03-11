@@ -98,6 +98,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
     }
 
     fun addNumber(numberOrNull: Int?): QueueManager.AddResult {
+        val blocked = guardQueueEditing()
+        if (blocked != null) return blocked
+
         val number = numberOrNull ?: return QueueManager.AddResult.InvalidNumber
 
         if (number !in 1..99) return QueueManager.AddResult.InvalidNumber
@@ -112,34 +115,50 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
     }
 
     fun removeAt(index: Int): QueueManager.OperationResult {
+        val blocked = guardQueueEditingOperation()
+        if (blocked != null) return blocked
+
         val res = queueManager.removeAt(index)
         publishSnapshot(pushToServer = true)
         return res
     }
 
     fun removeByNumber(number: Int): QueueManager.OperationResult {
+        val blocked = guardQueueEditingOperation()
+        if (blocked != null) return blocked
+
         val res = queueManager.removeByNumber(number)
         publishSnapshot(pushToServer = true)
         return res
     }
 
     fun setStatus(number: Int, status: Status): QueueManager.OperationResult {
+        val blocked = guardQueueEditingOperation()
+        if (blocked != null) return blocked
+
         val res = queueManager.setStatus(number, status)
         publishSnapshot(pushToServer = true)
         return res
     }
 
     fun clear(): QueueManager.OperationResult {
+        val blocked = guardQueueEditingOperation()
+        if (blocked != null) return blocked
+
         val res = queueManager.clear()
         publishSnapshot(pushToServer = true)
         return res
     }
 
     fun moveForDrag(from: Int, to: Int): QueueManager.OperationResult {
+        val blocked = guardQueueEditingOperation()
+        if (blocked != null) return blocked
+
         return queueManager.move(from, to)
     }
 
     fun commitDrag() {
+        if (isQueueEditingBlocked()) return
         publishSnapshot(pushToServer = true)
     }
 
@@ -512,6 +531,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
         val snapshot = latestRemoteSnapshot ?: return false
         val now = System.currentTimeMillis()
         return !snapshot.lockOwnerDeviceId.isNullOrBlank() && snapshot.lockUntilMs > now
+    }
+
+    private fun isQueueEditingBlocked(): Boolean {
+        return syncEnabled && !syncRepository.isEditableNow()
+    }
+
+    private fun guardQueueEditing(): QueueManager.AddResult? {
+        if (!isQueueEditingBlocked()) return null
+        _syncMessage.postValue("Список сейчас изменяет другой телефон.")
+        return QueueManager.AddResult.DuplicateInQueue
+    }
+
+    private fun guardQueueEditingOperation(): QueueManager.OperationResult? {
+        if (!isQueueEditingBlocked()) return null
+        _syncMessage.postValue("Список сейчас изменяет другой телефон.")
+        return QueueManager.OperationResult.InvalidMove
     }
 
     private fun setSyncState(state: SyncState) {

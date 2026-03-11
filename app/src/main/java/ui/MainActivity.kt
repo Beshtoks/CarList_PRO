@@ -43,6 +43,7 @@ import com.carlist.pro.domain.QueueManager
 import com.carlist.pro.domain.Status
 import com.carlist.pro.domain.TransportType
 import com.carlist.pro.domain.sync.SyncOffer
+import com.carlist.pro.domain.sync.SyncState
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class MainActivity : AppCompatActivity() {
@@ -224,6 +225,10 @@ class MainActivity : AppCompatActivity() {
             binding.infoText.text = text
         }
 
+        viewModel.syncState.observe(this) { state ->
+            updateSyncInfoTextColor(state)
+        }
+
         viewModel.syncMessage.observe(this) { message ->
             message ?: return@observe
             Toast.makeText(this, message, Toast.LENGTH_LONG).show()
@@ -335,6 +340,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateSyncInfoTextColor(state: SyncState) {
+        val color = when (state) {
+            SyncState.OnlineFree -> 0xFF32D74B.toInt()
+            is SyncState.LockedByMe -> 0xFF3A86FF.toInt()
+            is SyncState.LockedByOther -> 0xFFFF4D4F.toInt()
+            SyncState.Connecting -> 0xFF32D74B.toInt()
+            SyncState.NoNetwork -> 0xFFFF4D4F.toInt()
+            is SyncState.OfferAvailable -> 0xFF32D74B.toInt()
+            SyncState.NeedMyCar -> Color.WHITE
+            SyncState.Off -> Color.WHITE
+        }
+
+        binding.infoText.setTextColor(color)
+    }
+
     private fun showSyncOfferDialog(offer: SyncOffer) {
         currentSyncOffer = offer
         syncOfferHandled = false
@@ -375,11 +395,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateSyncOfferDialogText(offer: SyncOffer, secondsLeft: Int) {
         val authorText = offer.snapshot.authorNumber?.let { "№$it" } ?: "неизвестно"
+        val updatedAtMs = offer.snapshot.updatedAtMs
+        val minutesAgo = if (updatedAtMs > 0L) {
+            ((System.currentTimeMillis() - updatedAtMs).coerceAtLeast(0L) / 60_000L).toInt()
+        } else {
+            0
+        }
+
         val dialog = syncOfferDialog ?: return
 
         dialog.setTitle("SYNC OFFER")
         dialog.setMessage(
             "Последний список выложил $authorText.\n" +
+                    "Выложен $minutesAgo мин. назад.\n" +
                     "Принять список?\n" +
                     "Осталось: ${secondsLeft.coerceAtLeast(0)} сек."
         )
@@ -611,6 +639,16 @@ class MainActivity : AppCompatActivity() {
                 }
                 .setNegativeButton("NO", null)
                 .show()
+
+            dialog.window?.setBackgroundDrawable(
+                ColorDrawable(0xFF2A0033.toInt())
+            )
+
+            dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)
+                ?.setTextColor(Color.WHITE)
+
+            dialog.findViewById<TextView>(android.R.id.message)
+                ?.setTextColor(Color.WHITE)
 
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(0xFFFF8A8A.toInt())
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(0xFFFFFFFF.toInt())
