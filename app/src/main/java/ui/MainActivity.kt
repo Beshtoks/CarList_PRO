@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.pm.PackageManager
-import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
@@ -25,6 +24,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -42,6 +42,7 @@ import com.carlist.pro.domain.QueueItem
 import com.carlist.pro.domain.QueueManager
 import com.carlist.pro.domain.Status
 import com.carlist.pro.domain.TransportType
+import com.carlist.pro.domain.sync.SyncOffer
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class MainActivity : AppCompatActivity() {
@@ -72,10 +73,30 @@ class MainActivity : AppCompatActivity() {
 
     private val gestureHandler = Handler(Looper.getMainLooper())
 
+    private var syncOfferDialog: AlertDialog? = null
+    private var syncOfferHandled = false
+    private var currentSyncOffer: SyncOffer? = null
+    private var syncOfferSecondsLeft = 0
+
     private val techTapTimeoutRunnable = Runnable {
         if (techTapCount > 0 || techCountdownActive) {
             resetTechTapSequence()
             applyInputVisualState(imeVisibleNow)
+        }
+    }
+
+    private val syncOfferCountdownRunnable = object : Runnable {
+        override fun run() {
+            val offer = currentSyncOffer ?: return
+
+            if (syncOfferSecondsLeft <= 0) {
+                dismissSyncOfferDialog(accepted = false)
+                return
+            }
+
+            updateSyncOfferDialogText(offer, syncOfferSecondsLeft)
+            syncOfferSecondsLeft -= 1
+            gestureHandler.postDelayed(this, 1000L)
         }
     }
 
@@ -165,6 +186,7 @@ class MainActivity : AppCompatActivity() {
         setupInputPanel()
         setupButtons()
         setupImeHandling()
+        setupServerPanel()
 
         viewModel.queueItems.observe(this) { list ->
 
@@ -172,7 +194,6 @@ class MainActivity : AppCompatActivity() {
             val newSize = list.size
             pendingScrollToBottom = newSize > oldSize
 
-            binding.infoText.text = "SYNC OFF"
             updateMyCarCounter(list)
 
             if (!isDragging) {
@@ -197,6 +218,24 @@ class MainActivity : AppCompatActivity() {
             }
 
             lastQueueSize = newSize
+        }
+
+        viewModel.syncPanelText.observe(this) { text ->
+            binding.infoText.text = text
+        }
+
+        viewModel.syncMessage.observe(this) { message ->
+            message ?: return@observe
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            viewModel.onSyncMessageShown()
+        }
+
+        viewModel.syncOffer.observe(this) { offer ->
+            if (offer == null) {
+                dismissSyncOfferDialogOnly()
+            } else {
+                showSyncOfferDialog(offer)
+            }
         }
 
         binding.numberInput.setOnEditorActionListener { _, actionId, event ->
@@ -283,6 +322,94 @@ class MainActivity : AppCompatActivity() {
         val currentQueue = viewModel.queueItems.value.orEmpty()
         adapter.submitItems(currentQueue)
         updateMyCarCounter(currentQueue)
+    }
+
+    private fun setupServerPanel() {
+        binding.infoPanel.setOnClickListener {
+            viewModel.onServerPanelClick()
+        }
+
+        binding.infoPanel.setOnLongClickListener {
+            viewModel.onServerPanelLongPress()
+            true
+        }
+    }
+
+    private fun showSyncOfferDialog(offer: SyncOffer) {
+        currentSyncOffer = offer
+        syncOfferHandled = false
+        syncOfferSecondsLeft = offer.secondsRemaining.coerceAtLeast(0)
+
+        if (syncOfferDialog == null) {
+            syncOfferDialog = MaterialAlertDialogBuilder(this)
+                .setTitle("SYNC OFFER")
+                .setMessage("")
+                .setCancelable(false)
+                .setPositiveButton("YES") { _, _ ->
+                    dismissSyncOfferDialog(accepted = true)
+                }
+                .setNegativeButton("NO") { _, _ ->
+                    dismissSyncOfferDialog(accepted = false)
+                }
+                .create()
+
+            syncOfferDialog?.setOnDismissListener {
+                if (!syncOfferHandled) {
+                    syncOfferHandled = true
+                    gestureHandler.removeCallbacks(syncOfferCountdownRunnable)
+                    currentSyncOffer = null
+                    viewModel.declineSyncOffer()
+                }
+            }
+        }
+
+        updateSyncOfferDialogText(offer, syncOfferSecondsLeft)
+
+        if (syncOfferDialog?.isShowing != true) {
+            syncOfferDialog?.show()
+        }
+
+        gestureHandler.removeCallbacks(syncOfferCountdownRunnable)
+        gestureHandler.post(syncOfferCountdownRunnable)
+    }
+
+    private fun updateSyncOfferDialogText(offer: SyncOffer, secondsLeft: Int) {
+        val authorText = offer.snapshot.authorNumber?.let { "№$it" } ?: "неизвестно"
+        val dialog = syncOfferDialog ?: return
+
+        dialog.setTitle("SYNC OFFER")
+        dialog.setMessage(
+            "Последний список выложил $authorText.\n" +
+                    "Принять список?\n" +
+                    "Осталось: ${secondsLeft.coerceAtLeast(0)} сек."
+        )
+    }
+
+    private fun dismissSyncOfferDialog(accepted: Boolean) {
+        if (syncOfferHandled) return
+
+        syncOfferHandled = true
+        gestureHandler.removeCallbacks(syncOfferCountdownRunnable)
+
+        val dialog = syncOfferDialog
+        currentSyncOffer = null
+
+        if (accepted) {
+            viewModel.acceptSyncOffer()
+        } else {
+            viewModel.declineSyncOffer()
+        }
+
+        dialog?.dismiss()
+        syncOfferDialog = null
+    }
+
+    private fun dismissSyncOfferDialogOnly() {
+        gestureHandler.removeCallbacks(syncOfferCountdownRunnable)
+        currentSyncOffer = null
+        syncOfferHandled = true
+        syncOfferDialog?.dismiss()
+        syncOfferDialog = null
     }
 
     private fun setupInputPanel() {
@@ -862,8 +989,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         gestureHandler.removeCallbacks(techTapTimeoutRunnable)
+        gestureHandler.removeCallbacks(syncOfferCountdownRunnable)
         gestureHandler.removeCallbacks(micSilenceTimeoutRunnable)
         gestureHandler.removeCallbacks(micRestoreSayNumberRunnable)
+        syncOfferDialog?.dismiss()
+        syncOfferDialog = null
         voiceInputManager.release()
         super.onDestroy()
         feedback.release()

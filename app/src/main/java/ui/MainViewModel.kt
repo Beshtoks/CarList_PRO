@@ -1,6 +1,8 @@
 package com.carlist.pro.ui
 
 import android.app.Application
+import android.os.Handler
+import android.os.Looper
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -25,6 +27,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
     private val networkMonitor = NetworkMonitor(app.applicationContext)
     private val syncRepository = FirebaseSyncRepository(app.applicationContext)
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     private val _queueItems = MutableLiveData<List<QueueItem>>(emptyList())
     val queueItems: LiveData<List<QueueItem>> = _queueItems
 
@@ -47,6 +51,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
     private var activeRowIndex: Int = 0
     private var lastCommitFailedRow: Int? = null
 
+    private var pendingOfferRequest = false
+    private var latestRemoteSnapshot: RemoteQueueSnapshot? = null
+
+    private val syncCountdownRunnable = object : Runnable {
+        override fun run() {
+            updateSyncStateFromLatestSnapshot()
+            if (shouldKeepSyncCountdownRunning()) {
+                mainHandler.postDelayed(this, 1000L)
+            }
+        }
+    }
+
     init {
         val snapshot = queueStateStore.load()
 
@@ -63,6 +79,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
             if (syncEnabled && !isOnline) {
                 syncEnabled = false
                 syncRepository.stop()
+                pendingOfferRequest = false
+                latestRemoteSnapshot = null
+                stopSyncCountdown()
+                _syncOffer.postValue(null)
                 setSyncState(SyncState.NoNetwork)
                 _syncMessage.postValue("No network connection")
                 return@start
@@ -73,7 +93,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
             }
         }
 
-        publishSnapshot()
+        publishSnapshot(pushToServer = false)
         refreshSyncPanelState()
     }
 
@@ -87,31 +107,31 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
             isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
         )
 
-        publishSnapshot()
+        publishSnapshot(pushToServer = true)
         return result
     }
 
     fun removeAt(index: Int): QueueManager.OperationResult {
         val res = queueManager.removeAt(index)
-        publishSnapshot()
+        publishSnapshot(pushToServer = true)
         return res
     }
 
     fun removeByNumber(number: Int): QueueManager.OperationResult {
         val res = queueManager.removeByNumber(number)
-        publishSnapshot()
+        publishSnapshot(pushToServer = true)
         return res
     }
 
     fun setStatus(number: Int, status: Status): QueueManager.OperationResult {
         val res = queueManager.setStatus(number, status)
-        publishSnapshot()
+        publishSnapshot(pushToServer = true)
         return res
     }
 
     fun clear(): QueueManager.OperationResult {
         val res = queueManager.clear()
-        publishSnapshot()
+        publishSnapshot(pushToServer = true)
         return res
     }
 
@@ -120,12 +140,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
     }
 
     fun commitDrag() {
-        publishSnapshot()
+        publishSnapshot(pushToServer = true)
     }
 
     fun validateQueueAgainstRegistry(): QueueManager.ValidationResult {
         val result = queueManager.validateAgainstRegistry { registryStore.isAllowed(it) }
-        publishSnapshot()
+        publishSnapshot(pushToServer = true)
         return result
     }
 
@@ -190,7 +210,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
             if (oldNumber != null) {
                 registryStore.removeNumber(oldNumber)
                 queueManager.removeByNumber(oldNumber)
-                publishSnapshot()
+                publishSnapshot(pushToServer = true)
             }
 
             lastCommitFailedRow = null
@@ -222,7 +242,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
                 isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
             )
 
-            publishSnapshot()
+            publishSnapshot(pushToServer = true)
         }
 
         lastCommitFailedRow = null
@@ -293,8 +313,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
         }
 
         syncEnabled = true
+        pendingOfferRequest = false
+        _syncOffer.value = null
+        latestRemoteSnapshot = null
+        stopSyncCountdown()
         setSyncState(SyncState.Connecting)
         syncRepository.start(this)
+    }
+
+    fun onServerPanelClick() {
+        if (!syncEnabled) return
+        pendingOfferRequest = true
+        syncRepository.requestLatestSnapshot()
+    }
+
+    fun acceptSyncOffer() {
+        val offer = _syncOffer.value ?: return
+        applyRemoteQueue(offer.snapshot.queue)
+        _syncOffer.value = null
+        pendingOfferRequest = false
+        updateSyncStateFromLatestSnapshot()
+    }
+
+    fun declineSyncOffer() {
+        _syncOffer.value = null
+        pendingOfferRequest = false
+        updateSyncStateFromLatestSnapshot()
+    }
+
+    fun clearSyncOffer() {
+        _syncOffer.value = null
+        pendingOfferRequest = false
     }
 
     fun onSyncMessageShown() {
@@ -302,22 +351,62 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
     }
 
     override fun onSyncStateChanged(state: SyncState) {
-        setSyncState(state)
+        if (_syncOffer.value != null) {
+            return
+        }
+
+        when (state) {
+            is SyncState.LockedByMe,
+            is SyncState.LockedByOther -> startSyncCountdown()
+            else -> {
+                if (!shouldKeepSyncCountdownRunning()) {
+                    stopSyncCountdown()
+                }
+            }
+        }
+
+        if (latestRemoteSnapshot != null) {
+            updateSyncStateFromLatestSnapshot()
+        } else {
+            setSyncState(state)
+        }
     }
 
     override fun onRemoteSnapshot(snapshot: RemoteQueueSnapshot) {
-        val offer = SyncOffer(
-            snapshot = snapshot,
-            secondsRemaining = snapshot.offerSecondsRemaining()
-        )
-        _syncOffer.postValue(offer)
+        latestRemoteSnapshot = snapshot
+
+        if (pendingOfferRequest) {
+            pendingOfferRequest = false
+
+            val remoteQueue = snapshot.queue
+            val localQueue = queueManager.snapshot()
+
+            if (remoteQueue != localQueue) {
+                val offer = SyncOffer(
+                    snapshot = snapshot,
+                    secondsRemaining = SYNC_OFFER_SECONDS
+                )
+                _syncOffer.postValue(offer)
+                setSyncState(
+                    SyncState.OfferAvailable(
+                        authorNumber = snapshot.authorNumber,
+                        secondsLeft = SYNC_OFFER_SECONDS
+                    )
+                )
+                return
+            }
+        }
+
+        updateSyncStateFromLatestSnapshot()
     }
 
     override fun onBlocked(reason: String) {
+        pendingOfferRequest = false
         _syncMessage.postValue(reason)
     }
 
     override fun onCleared() {
+        stopSyncCountdown()
         syncRepository.stop()
         networkMonitor.stop()
         super.onCleared()
@@ -325,7 +414,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
 
     private fun stopSync() {
         syncEnabled = false
+        pendingOfferRequest = false
+        latestRemoteSnapshot = null
+        stopSyncCountdown()
         syncRepository.stop()
+        _syncOffer.value = null
         setSyncState(SyncState.Off)
     }
 
@@ -333,10 +426,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
         _registryUiTick.value = (_registryUiTick.value ?: 0L) + 1L
     }
 
-    private fun publishSnapshot() {
+    private fun publishSnapshot(pushToServer: Boolean) {
         val snap = queueManager.snapshot()
         _queueItems.value = snap
         queueStateStore.save(snap)
+
+        if (pushToServer && syncEnabled) {
+            val myCarNumber = registryStore.getMyCar()
+            syncRepository.pushSnapshot(
+                queue = snap,
+                authorNumber = myCarNumber
+            )
+        }
+    }
+
+    private fun applyRemoteQueue(remoteQueue: List<QueueItem>) {
+        queueManager.restoreFromSnapshot(
+            snapshot = remoteQueue,
+            isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
+        )
+
+        queueManager.validateAgainstRegistry { registryStore.isAllowed(it) }
+        publishSnapshot(pushToServer = false)
     }
 
     private fun refreshSyncPanelState() {
@@ -349,6 +460,58 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
         }
 
         setSyncState(nextState)
+    }
+
+    private fun updateSyncStateFromLatestSnapshot() {
+        if (!syncEnabled) return
+
+        val snapshot = latestRemoteSnapshot
+        if (snapshot == null) {
+            setSyncState(SyncState.OnlineFree)
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val lockOwner = snapshot.lockOwnerDeviceId
+        val secondsLeft = ((snapshot.lockUntilMs - now).coerceAtLeast(0L) / 1000L).toInt()
+
+        val state = when {
+            lockOwner.isNullOrBlank() || snapshot.lockUntilMs <= now -> SyncState.OnlineFree
+            lockOwner == syncRepository.currentDeviceId() -> {
+                SyncState.LockedByMe(
+                    ownerNumber = snapshot.lockOwnerNumber,
+                    secondsLeft = secondsLeft
+                )
+            }
+            else -> {
+                SyncState.LockedByOther(
+                    ownerNumber = snapshot.lockOwnerNumber,
+                    secondsLeft = secondsLeft
+                )
+            }
+        }
+
+        setSyncState(state)
+
+        if (!shouldKeepSyncCountdownRunning()) {
+            stopSyncCountdown()
+        }
+    }
+
+    private fun startSyncCountdown() {
+        stopSyncCountdown()
+        mainHandler.post(syncCountdownRunnable)
+    }
+
+    private fun stopSyncCountdown() {
+        mainHandler.removeCallbacks(syncCountdownRunnable)
+    }
+
+    private fun shouldKeepSyncCountdownRunning(): Boolean {
+        if (!syncEnabled) return false
+        val snapshot = latestRemoteSnapshot ?: return false
+        val now = System.currentTimeMillis()
+        return !snapshot.lockOwnerDeviceId.isNullOrBlank() && snapshot.lockUntilMs > now
     }
 
     private fun setSyncState(state: SyncState) {
@@ -370,5 +533,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
                 "CHANGE $owner ${state.secondsLeft}s"
             }
         }
+    }
+
+    companion object {
+        private const val SYNC_OFFER_SECONDS = 15
     }
 }
