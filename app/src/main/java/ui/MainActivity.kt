@@ -3,14 +3,18 @@ package com.carlist.pro.ui
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
@@ -44,6 +48,7 @@ import com.carlist.pro.domain.Status
 import com.carlist.pro.domain.TransportType
 import com.carlist.pro.domain.sync.SyncOffer
 import com.carlist.pro.domain.sync.SyncState
+import com.carlist.pro.sync.SyncForegroundService
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class MainActivity : AppCompatActivity() {
@@ -71,6 +76,7 @@ class MainActivity : AppCompatActivity() {
 
     private var lastAutoCopiedText = ""
     private var suppressNextQueueAutoScroll = false
+    private var backgroundServiceStarted = false
 
     private val gestureHandler = Handler(Looper.getMainLooper())
 
@@ -78,6 +84,9 @@ class MainActivity : AppCompatActivity() {
     private var syncOfferHandled = false
     private var currentSyncOffer: SyncOffer? = null
     private var syncOfferSecondsLeft = 0
+
+    private var networkAlertDialog: AlertDialog? = null
+    private var networkAlertAcknowledged = false
 
     private val techTapTimeoutRunnable = Runnable {
         if (techTapCount > 0 || techCountdownActive) {
@@ -98,6 +107,15 @@ class MainActivity : AppCompatActivity() {
             updateSyncOfferDialogText(offer, syncOfferSecondsLeft)
             syncOfferSecondsLeft -= 1
             gestureHandler.postDelayed(this, 1000L)
+        }
+    }
+
+    private val networkVibrationRunnable = object : Runnable {
+        override fun run() {
+            if (networkAlertDialog?.isShowing != true || networkAlertAcknowledged) return
+
+            vibrateNetworkPulse()
+            gestureHandler.postDelayed(this, 4_000L)
         }
     }
 
@@ -125,6 +143,11 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+    private val postNotificationsPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            ensureBackgroundMonitorServiceStarted()
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
 
         WindowCompat.setDecorFitsSystemWindows(window, true)
@@ -138,6 +161,8 @@ class MainActivity : AppCompatActivity() {
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        ensureNotificationsPermissionAndStartService()
 
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
         feedback = SystemFeedback(this)
@@ -243,6 +268,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        viewModel.networkAlertVisible.observe(this) { visible ->
+            if (visible) {
+                showNetworkAlertDialog()
+            } else {
+                dismissNetworkAlertDialogOnly()
+            }
+        }
+
         binding.numberInput.setOnEditorActionListener { _, actionId, event ->
 
             val isEnter =
@@ -291,6 +324,11 @@ class MainActivity : AppCompatActivity() {
         setMicButtonOffState()
     }
 
+    override fun onResume() {
+        super.onResume()
+        ensureNotificationsPermissionAndStartService()
+    }
+
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
 
         if (!isTechMenuOpen && ev.actionMasked == MotionEvent.ACTION_UP) {
@@ -327,6 +365,37 @@ class MainActivity : AppCompatActivity() {
         val currentQueue = viewModel.queueItems.value.orEmpty()
         adapter.submitItems(currentQueue)
         updateMyCarCounter(currentQueue)
+    }
+
+    private fun ensureNotificationsPermissionAndStartService() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            ensureBackgroundMonitorServiceStarted()
+            return
+        }
+
+        when {
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED -> {
+                ensureBackgroundMonitorServiceStarted()
+            }
+
+            else -> {
+                postNotificationsPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    private fun ensureBackgroundMonitorServiceStarted() {
+        if (backgroundServiceStarted) return
+
+        val intent = Intent(this, SyncForegroundService::class.java).apply {
+            action = SyncForegroundService.ACTION_START_MONITORING
+        }
+
+        ContextCompat.startForegroundService(this, intent)
+        backgroundServiceStarted = true
     }
 
     private fun setupServerPanel() {
@@ -440,6 +509,126 @@ class MainActivity : AppCompatActivity() {
         syncOfferDialog = null
     }
 
+    private fun showNetworkAlertDialog() {
+        if (networkAlertDialog?.isShowing == true) return
+
+        networkAlertAcknowledged = false
+
+        val density = resources.displayMetrics.density
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(
+                (24 * density).toInt(),
+                (20 * density).toInt(),
+                (24 * density).toInt(),
+                (20 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 18f * density
+                setColor(0xFF1A001F.toInt())
+                setStroke((1 * density).toInt(), 0xFF5A1A2A.toInt())
+            }
+        }
+
+        val titleView = TextView(this).apply {
+            text = "WARNING"
+            setTextColor(0xFFFF4444.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            gravity = Gravity.CENTER
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+
+        val messageView = TextView(this).apply {
+            text = "No network connection"
+            setTextColor(0xFFFF4444.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            gravity = Gravity.CENTER
+            setPadding(0, (10 * density).toInt(), 0, 0)
+        }
+
+        container.addView(
+            titleView,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        container.addView(
+            messageView,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        container.setOnClickListener {
+            acknowledgeNetworkAlert()
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(container)
+            .create()
+
+        dialog.setCancelable(false)
+        dialog.setCanceledOnTouchOutside(false)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.setOnKeyListener { _, _, _ -> true }
+
+        networkAlertDialog = dialog
+        dialog.show()
+
+        gestureHandler.removeCallbacks(networkVibrationRunnable)
+        gestureHandler.post(networkVibrationRunnable)
+    }
+
+    private fun acknowledgeNetworkAlert() {
+        if (networkAlertAcknowledged) return
+
+        networkAlertAcknowledged = true
+        gestureHandler.removeCallbacks(networkVibrationRunnable)
+        stopVibration()
+        viewModel.onNetworkAlertAcknowledged()
+        dismissNetworkAlertDialogOnly()
+    }
+
+    private fun dismissNetworkAlertDialogOnly() {
+        gestureHandler.removeCallbacks(networkVibrationRunnable)
+        stopVibration()
+        networkAlertDialog?.dismiss()
+        networkAlertDialog = null
+    }
+
+    private fun vibrateNetworkPulse() {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            getSystemService(Vibrator::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(VIBRATOR_SERVICE) as? Vibrator
+        } ?: return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(3_000L, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(3_000L)
+        }
+    }
+
+    private fun stopVibration() {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            getSystemService(Vibrator::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(VIBRATOR_SERVICE) as? Vibrator
+        } ?: return
+
+        vibrator.cancel()
+    }
+
     private fun setupInputPanel() {
 
         binding.numberInput.isLongClickable = false
@@ -484,7 +673,7 @@ class MainActivity : AppCompatActivity() {
 
         if (techTapCount == 0) {
             techFirstTapAtMs = now
-        } else if (now - techFirstTapAtMs > 5000) {
+        } else if (now - techFirstTapAtMs > 5_000L) {
             resetTechTapSequence()
             techFirstTapAtMs = now
         }
@@ -492,10 +681,9 @@ class MainActivity : AppCompatActivity() {
         techTapCount++
 
         gestureHandler.removeCallbacks(techTapTimeoutRunnable)
-        gestureHandler.postDelayed(techTapTimeoutRunnable, 5000L)
+        gestureHandler.postDelayed(techTapTimeoutRunnable, 5_000L)
 
         when (techTapCount) {
-
             1 -> {}
 
             2 -> {
@@ -505,7 +693,6 @@ class MainActivity : AppCompatActivity() {
             }
 
             3 -> binding.inputHint.text = "2"
-
             4 -> binding.inputHint.text = "1"
 
             5 -> {
@@ -1028,10 +1215,14 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         gestureHandler.removeCallbacks(techTapTimeoutRunnable)
         gestureHandler.removeCallbacks(syncOfferCountdownRunnable)
+        gestureHandler.removeCallbacks(networkVibrationRunnable)
         gestureHandler.removeCallbacks(micSilenceTimeoutRunnable)
         gestureHandler.removeCallbacks(micRestoreSayNumberRunnable)
+        stopVibration()
         syncOfferDialog?.dismiss()
         syncOfferDialog = null
+        networkAlertDialog?.dismiss()
+        networkAlertDialog = null
         voiceInputManager.release()
         super.onDestroy()
         feedback.release()

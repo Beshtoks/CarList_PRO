@@ -92,6 +92,16 @@ class FirebaseSyncRepository(
             }
     }
 
+    fun pingServer(onResult: (Boolean) -> Unit) {
+        roomRef.get()
+            .addOnSuccessListener {
+                onResult(true)
+            }
+            .addOnFailureListener {
+                onResult(false)
+            }
+    }
+
     fun pushSnapshot(queue: List<QueueItem>, authorNumber: Int?) {
         if (!started) return
 
@@ -152,20 +162,26 @@ class FirebaseSyncRepository(
     }
 
     private fun ensureRoomExists() {
-        val now = System.currentTimeMillis()
+        roomRef.get()
+            .addOnSuccessListener { document ->
+                if (document.exists()) return@addOnSuccessListener
 
-        val data = hashMapOf<String, Any>(
-            FIELD_QUEUE to emptyList<Map<String, Any>>(),
-            FIELD_LAST_AUTHOR_NUMBER to 0,
-            FIELD_UPDATED_AT_MS to now,
-            FIELD_OFFER_EXPIRES_AT_MS to 0L,
-            FIELD_LOCK_OWNER_DEVICE_ID to "",
-            FIELD_LOCK_OWNER_NUMBER to 0,
-            FIELD_LOCK_UNTIL_MS to 0L,
-            FIELD_UPDATED_AT to FieldValue.serverTimestamp()
-        )
+                val data = hashMapOf<String, Any>(
+                    FIELD_QUEUE to emptyList<Map<String, Any>>(),
+                    FIELD_LAST_AUTHOR_NUMBER to 0,
+                    FIELD_UPDATED_AT_MS to 0L,
+                    FIELD_OFFER_EXPIRES_AT_MS to 0L,
+                    FIELD_LOCK_OWNER_DEVICE_ID to "",
+                    FIELD_LOCK_OWNER_NUMBER to 0,
+                    FIELD_LOCK_UNTIL_MS to 0L,
+                    FIELD_UPDATED_AT to FieldValue.serverTimestamp()
+                )
 
-        roomRef.set(data, SetOptions.merge())
+                roomRef.set(data, SetOptions.merge())
+            }
+            .addOnFailureListener {
+                callback?.onBlocked("Не удалось подготовить комнату синхронизации.")
+            }
     }
 
     private fun attachListener() {

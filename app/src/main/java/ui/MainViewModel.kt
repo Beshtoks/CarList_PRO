@@ -47,6 +47,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
     private val _syncOffer = MutableLiveData<SyncOffer?>(null)
     val syncOffer: LiveData<SyncOffer?> = _syncOffer
 
+    private val _networkAlertVisible = MutableLiveData(false)
+    val networkAlertVisible: LiveData<Boolean> = _networkAlertVisible
+
     private var syncEnabled = false
     private var activeRowIndex: Int = 0
     private var lastCommitFailedRow: Int? = null
@@ -54,12 +57,57 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
     private var pendingOfferRequest = false
     private var latestRemoteSnapshot: RemoteQueueSnapshot? = null
 
+    private var networkAlertActive = false
+    private var shouldRestoreSyncAfterNetworkReturn = false
+    private var heartbeatMisses = 0
+    private var lastKnownOnline: Boolean? = null
+
     private val syncCountdownRunnable = object : Runnable {
         override fun run() {
             updateSyncStateFromLatestSnapshot()
             if (shouldKeepSyncCountdownRunning()) {
                 mainHandler.postDelayed(this, 1000L)
             }
+        }
+    }
+
+    private val syncHeartbeatRunnable = object : Runnable {
+        override fun run() {
+            if (!syncEnabled) return
+
+            val onlineNow = networkMonitor.isCurrentlyOnline()
+            if (!onlineNow) {
+                handleNetworkChanged(false)
+                return
+            }
+
+            syncRepository.pingServer { ok ->
+                if (!syncEnabled) return@pingServer
+
+                if (ok) {
+                    heartbeatMisses = 0
+                } else {
+                    heartbeatMisses += 1
+                    if (heartbeatMisses >= HEARTBEAT_FAIL_LIMIT) {
+                        handleSyncConnectionLost()
+                        return@pingServer
+                    }
+                }
+
+                if (syncEnabled) {
+                    mainHandler.postDelayed(this, HEARTBEAT_INTERVAL_MS)
+                }
+            }
+        }
+    }
+
+    private val networkStatePollRunnable = object : Runnable {
+        override fun run() {
+            val onlineNow = networkMonitor.isCurrentlyOnline()
+            if (lastKnownOnline == null || lastKnownOnline != onlineNow) {
+                handleNetworkChanged(onlineNow)
+            }
+            mainHandler.postDelayed(this, NETWORK_POLL_INTERVAL_MS)
         }
     }
 
@@ -76,25 +124,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
         }
 
         networkMonitor.start { isOnline ->
-            if (syncEnabled && !isOnline) {
-                syncEnabled = false
-                syncRepository.stop()
-                pendingOfferRequest = false
-                latestRemoteSnapshot = null
-                stopSyncCountdown()
-                _syncOffer.postValue(null)
-                setSyncState(SyncState.NoNetwork)
-                _syncMessage.postValue("No network connection")
-                return@start
-            }
-
-            if (!syncEnabled) {
-                refreshSyncPanelState()
-            }
+            handleNetworkChanged(isOnline)
         }
 
+        startNetworkStatePolling()
+
         publishSnapshot(pushToServer = false)
-        refreshSyncPanelState()
+
+        val onlineNow = networkMonitor.isCurrentlyOnline()
+        lastKnownOnline = onlineNow
+
+        if (!onlineNow) {
+            networkAlertActive = true
+            _networkAlertVisible.value = true
+            setSyncState(SyncState.NoNetwork)
+        } else {
+            refreshSyncPanelState()
+        }
     }
 
     fun addNumber(numberOrNull: Int?): QueueManager.AddResult {
@@ -102,7 +148,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
         if (blocked != null) return blocked
 
         val number = numberOrNull ?: return QueueManager.AddResult.InvalidNumber
-
         if (number !in 1..99) return QueueManager.AddResult.InvalidNumber
 
         val result = queueManager.addNumber(
@@ -260,7 +305,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
                 newNumber = newNumber,
                 isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
             )
-
             publishSnapshot(pushToServer = true)
         }
 
@@ -320,8 +364,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
         }
 
         if (!networkMonitor.isCurrentlyOnline()) {
+            networkAlertActive = true
+            _networkAlertVisible.value = true
             setSyncState(SyncState.NoNetwork)
-            _syncMessage.value = "No network connection"
             return
         }
 
@@ -331,11 +376,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
             return
         }
 
+        shouldRestoreSyncAfterNetworkReturn = false
         syncEnabled = true
         pendingOfferRequest = false
         _syncOffer.value = null
         latestRemoteSnapshot = null
         stopSyncCountdown()
+        startSyncHeartbeat()
         setSyncState(SyncState.Connecting)
         syncRepository.start(this)
     }
@@ -365,12 +412,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
         pendingOfferRequest = false
     }
 
+    fun onNetworkAlertAcknowledged() {
+        networkAlertActive = false
+        _networkAlertVisible.value = false
+
+        if (networkMonitor.isCurrentlyOnline() && shouldRestoreSyncAfterNetworkReturn) {
+            reconnectAfterNetworkReturn()
+        } else if (!networkMonitor.isCurrentlyOnline()) {
+            setSyncState(SyncState.NoNetwork)
+        } else {
+            refreshSyncPanelState()
+        }
+    }
+
     fun onSyncMessageShown() {
         _syncMessage.value = null
     }
 
     override fun onSyncStateChanged(state: SyncState) {
-        if (_syncOffer.value != null) {
+        if (_syncOffer.value != null || networkAlertActive) {
             return
         }
 
@@ -416,7 +476,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
             }
         }
 
-        updateSyncStateFromLatestSnapshot()
+        if (!networkAlertActive) {
+            updateSyncStateFromLatestSnapshot()
+        }
     }
 
     override fun onBlocked(reason: String) {
@@ -426,16 +488,107 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
 
     override fun onCleared() {
         stopSyncCountdown()
+        stopSyncHeartbeat()
+        stopNetworkStatePolling()
         syncRepository.stop()
         networkMonitor.stop()
         super.onCleared()
     }
 
-    private fun stopSync() {
+    private fun handleNetworkChanged(isOnline: Boolean) {
+        lastKnownOnline = isOnline
+
+        if (!isOnline) {
+            if (!networkAlertActive) {
+                networkAlertActive = true
+                _networkAlertVisible.postValue(true)
+            }
+
+            if (syncEnabled) {
+                handleSyncConnectionLost()
+            } else {
+                setSyncState(SyncState.NoNetwork)
+            }
+            return
+        }
+
+        if (networkAlertActive) {
+            networkAlertActive = false
+            _networkAlertVisible.postValue(false)
+        }
+
+        if (shouldRestoreSyncAfterNetworkReturn) {
+            reconnectAfterNetworkReturn()
+            return
+        }
+
+        refreshSyncPanelState()
+    }
+
+    private fun handleSyncConnectionLost() {
+        shouldRestoreSyncAfterNetworkReturn = true
         syncEnabled = false
         pendingOfferRequest = false
         latestRemoteSnapshot = null
+        heartbeatMisses = 0
         stopSyncCountdown()
+        stopSyncHeartbeat()
+        _syncOffer.postValue(null)
+        syncRepository.stop()
+        setSyncState(SyncState.NoNetwork)
+    }
+
+    private fun reconnectAfterNetworkReturn() {
+        if (!networkMonitor.isCurrentlyOnline()) {
+            setSyncState(SyncState.NoNetwork)
+            return
+        }
+
+        if (registryStore.getMyCar() == null) {
+            shouldRestoreSyncAfterNetworkReturn = false
+            refreshSyncPanelState()
+            return
+        }
+
+        shouldRestoreSyncAfterNetworkReturn = false
+        syncEnabled = true
+        pendingOfferRequest = false
+        latestRemoteSnapshot = null
+        heartbeatMisses = 0
+        stopSyncCountdown()
+        startSyncHeartbeat()
+
+        setSyncState(SyncState.Connecting)
+        syncRepository.start(this)
+    }
+
+    private fun startSyncHeartbeat() {
+        heartbeatMisses = 0
+        stopSyncHeartbeat()
+        mainHandler.postDelayed(syncHeartbeatRunnable, HEARTBEAT_INTERVAL_MS)
+    }
+
+    private fun stopSyncHeartbeat() {
+        mainHandler.removeCallbacks(syncHeartbeatRunnable)
+    }
+
+    private fun startNetworkStatePolling() {
+        stopNetworkStatePolling()
+        mainHandler.post(networkStatePollRunnable)
+    }
+
+    private fun stopNetworkStatePolling() {
+        mainHandler.removeCallbacks(networkStatePollRunnable)
+    }
+
+    private fun stopSync() {
+        shouldRestoreSyncAfterNetworkReturn = false
+        syncEnabled = false
+        pendingOfferRequest = false
+        latestRemoteSnapshot = null
+        heartbeatMisses = 0
+        stopSyncCountdown()
+        stopSyncHeartbeat()
         syncRepository.stop()
         _syncOffer.value = null
         setSyncState(SyncState.Off)
@@ -572,5 +725,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
 
     companion object {
         private const val SYNC_OFFER_SECONDS = 15
+        private const val HEARTBEAT_INTERVAL_MS = 3_000L
+        private const val HEARTBEAT_FAIL_LIMIT = 1
+        private const val NETWORK_POLL_INTERVAL_MS = 1_000L
     }
 }

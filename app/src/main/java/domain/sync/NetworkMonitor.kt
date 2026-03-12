@@ -25,6 +25,16 @@ class NetworkMonitor(context: Context) {
         override fun onUnavailable() {
             listener?.invoke(false)
         }
+
+        override fun onCapabilitiesChanged(
+            network: Network,
+            networkCapabilities: NetworkCapabilities
+        ) {
+            listener?.invoke(
+                networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                        networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            )
+        }
     }
 
     fun start(listener: (Boolean) -> Unit) {
