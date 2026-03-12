@@ -1,8 +1,6 @@
 package com.carlist.pro.ui
 
 import android.app.Application
-import android.os.Handler
-import android.os.Looper
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -14,20 +12,20 @@ import com.carlist.pro.domain.QueueItem
 import com.carlist.pro.domain.QueueManager
 import com.carlist.pro.domain.Status
 import com.carlist.pro.domain.TransportInfo
-import com.carlist.pro.domain.TransportType
-import com.carlist.pro.domain.sync.RemoteQueueSnapshot
 import com.carlist.pro.domain.sync.SyncOffer
 import com.carlist.pro.domain.sync.SyncState
+import com.carlist.pro.ui.controller.QueueEditController
+import com.carlist.pro.ui.controller.QueueStateCoordinator
+import com.carlist.pro.ui.controller.RegistryController
+import com.carlist.pro.ui.sync.SyncCoordinator
 
-class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepository.Callback {
+class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val queueManager = QueueManager()
     private val registryStore = DriverRegistryStore(app.applicationContext)
     private val queueStateStore = QueueStateStore(app.applicationContext)
     private val networkMonitor = NetworkMonitor(app.applicationContext)
     private val syncRepository = FirebaseSyncRepository(app.applicationContext)
-
-    private val mainHandler = Handler(Looper.getMainLooper())
 
     private val _queueItems = MutableLiveData<List<QueueItem>>(emptyList())
     val queueItems: LiveData<List<QueueItem>> = _queueItems
@@ -50,167 +48,83 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
     private val _networkAlertVisible = MutableLiveData(false)
     val networkAlertVisible: LiveData<Boolean> = _networkAlertVisible
 
-    private var syncEnabled = false
-    private var activeRowIndex: Int = 0
-    private var lastCommitFailedRow: Int? = null
-
-    private var pendingOfferRequest = false
-    private var latestRemoteSnapshot: RemoteQueueSnapshot? = null
-
-    private var networkAlertActive = false
-    private var shouldRestoreSyncAfterNetworkReturn = false
-    private var heartbeatMisses = 0
-    private var lastKnownOnline: Boolean? = null
-
-    private val syncCountdownRunnable = object : Runnable {
-        override fun run() {
-            updateSyncStateFromLatestSnapshot()
-            if (shouldKeepSyncCountdownRunning()) {
-                mainHandler.postDelayed(this, 1000L)
-            }
-        }
-    }
-
-    private val syncHeartbeatRunnable = object : Runnable {
-        override fun run() {
-            if (!syncEnabled) return
-
-            val onlineNow = networkMonitor.isCurrentlyOnline()
-            if (!onlineNow) {
-                handleNetworkChanged(false)
-                return
-            }
-
-            syncRepository.pingServer { ok ->
-                if (!syncEnabled) return@pingServer
-
-                if (ok) {
-                    heartbeatMisses = 0
-                } else {
-                    heartbeatMisses += 1
-                    if (heartbeatMisses >= HEARTBEAT_FAIL_LIMIT) {
-                        handleSyncConnectionLost()
-                        return@pingServer
-                    }
-                }
-
-                if (syncEnabled) {
-                    mainHandler.postDelayed(this, HEARTBEAT_INTERVAL_MS)
-                }
-            }
-        }
-    }
-
-    private val networkStatePollRunnable = object : Runnable {
-        override fun run() {
-            val onlineNow = networkMonitor.isCurrentlyOnline()
-            if (lastKnownOnline == null || lastKnownOnline != onlineNow) {
-                handleNetworkChanged(onlineNow)
-            }
-            mainHandler.postDelayed(this, NETWORK_POLL_INTERVAL_MS)
-        }
-    }
+    private lateinit var syncCoordinator: SyncCoordinator
+    private lateinit var queueStateCoordinator: QueueStateCoordinator
+    private lateinit var registryController: RegistryController
+    private lateinit var queueEditController: QueueEditController
 
     init {
-        val snapshot = queueStateStore.load()
+        syncCoordinator = SyncCoordinator(
+            networkMonitor = networkMonitor,
+            syncRepository = syncRepository,
+            registryStore = registryStore,
+            queueSnapshotProvider = { queueManager.snapshot() },
+            onApplyRemoteQueue = { remoteQueue -> queueStateCoordinator.applyRemoteQueue(remoteQueue) },
+            onSyncStateChanged = { state -> _syncState.postValue(state) },
+            onSyncPanelTextChanged = { text -> _syncPanelText.postValue(text) },
+            onSyncMessage = { message -> _syncMessage.postValue(message) },
+            onSyncOfferChanged = { offer -> _syncOffer.postValue(offer) },
+            onNetworkAlertVisible = { visible -> _networkAlertVisible.postValue(visible) }
+        )
 
-        if (snapshot.isNotEmpty()) {
-            queueManager.restoreFromSnapshot(
-                snapshot = snapshot,
-                isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
-            )
+        queueStateCoordinator = QueueStateCoordinator(
+            queueManager = queueManager,
+            queueStateStore = queueStateStore,
+            registryStore = registryStore,
+            onQueuePublished = { snapshot -> _queueItems.value = snapshot },
+            onPushSnapshotRequested = { snapshot -> syncCoordinator.onLocalSnapshotChanged(snapshot) }
+        )
 
-            queueManager.validateAgainstRegistry { registryStore.isAllowed(it) }
-        }
+        registryController = RegistryController(
+            registryStore = registryStore,
+            queueManager = queueManager,
+            publishSnapshot = { pushToServer -> queueStateCoordinator.publishSnapshot(pushToServer) },
+            tickRegistry = { tickRegistry() },
+            refreshSyncPanelState = { syncCoordinator.refreshPanelState() }
+        )
 
-        networkMonitor.start { isOnline ->
-            handleNetworkChanged(isOnline)
-        }
+        queueEditController = QueueEditController(
+            queueManager = queueManager,
+            registryStore = registryStore,
+            isQueueEditingBlocked = { syncCoordinator.isQueueEditingBlocked() },
+            onBlockedMessage = { message -> _syncMessage.postValue(message) },
+            publishSnapshot = { pushToServer -> queueStateCoordinator.publishSnapshot(pushToServer) }
+        )
 
-        startNetworkStatePolling()
-
-        publishSnapshot(pushToServer = false)
-
-        val onlineNow = networkMonitor.isCurrentlyOnline()
-        lastKnownOnline = onlineNow
-
-        if (!onlineNow) {
-            networkAlertActive = true
-            _networkAlertVisible.value = true
-            setSyncState(SyncState.NoNetwork)
-        } else {
-            refreshSyncPanelState()
-        }
+        queueStateCoordinator.initializeFromStorage()
+        syncCoordinator.initialize()
     }
 
     fun addNumber(numberOrNull: Int?): QueueManager.AddResult {
-        val blocked = guardQueueEditing()
-        if (blocked != null) return blocked
-
-        val number = numberOrNull ?: return QueueManager.AddResult.InvalidNumber
-        if (number !in 1..99) return QueueManager.AddResult.InvalidNumber
-
-        val result = queueManager.addNumber(
-            number = number,
-            isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
-        )
-
-        publishSnapshot(pushToServer = true)
-        return result
+        return queueEditController.addNumber(numberOrNull)
     }
 
     fun removeAt(index: Int): QueueManager.OperationResult {
-        val blocked = guardQueueEditingOperation()
-        if (blocked != null) return blocked
-
-        val res = queueManager.removeAt(index)
-        publishSnapshot(pushToServer = true)
-        return res
+        return queueEditController.removeAt(index)
     }
 
     fun removeByNumber(number: Int): QueueManager.OperationResult {
-        val blocked = guardQueueEditingOperation()
-        if (blocked != null) return blocked
-
-        val res = queueManager.removeByNumber(number)
-        publishSnapshot(pushToServer = true)
-        return res
+        return queueEditController.removeByNumber(number)
     }
 
     fun setStatus(number: Int, status: Status): QueueManager.OperationResult {
-        val blocked = guardQueueEditingOperation()
-        if (blocked != null) return blocked
-
-        val res = queueManager.setStatus(number, status)
-        publishSnapshot(pushToServer = true)
-        return res
+        return queueEditController.setStatus(number, status)
     }
 
     fun clear(): QueueManager.OperationResult {
-        val blocked = guardQueueEditingOperation()
-        if (blocked != null) return blocked
-
-        val res = queueManager.clear()
-        publishSnapshot(pushToServer = true)
-        return res
+        return queueEditController.clear()
     }
 
     fun moveForDrag(from: Int, to: Int): QueueManager.OperationResult {
-        val blocked = guardQueueEditingOperation()
-        if (blocked != null) return blocked
-
-        return queueManager.move(from, to)
+        return queueEditController.moveForDrag(from, to)
     }
 
     fun commitDrag() {
-        if (isQueueEditingBlocked()) return
-        publishSnapshot(pushToServer = true)
+        queueEditController.commitDrag()
     }
 
     fun validateQueueAgainstRegistry(): QueueManager.ValidationResult {
-        val result = queueManager.validateAgainstRegistry { registryStore.isAllowed(it) }
-        publishSnapshot(pushToServer = true)
-        return result
+        return queueEditController.validateQueueAgainstRegistry()
     }
 
     fun getTransportInfo(number: Int): TransportInfo {
@@ -223,510 +137,63 @@ class MainViewModel(app: Application) : AndroidViewModel(app), FirebaseSyncRepos
     }
 
     fun getRegistryRows(): List<RegistryRow> {
-        val numbers = registryStore.getAllowedNumbers()
-        val rows = mutableListOf<RegistryRow>()
-
-        numbers.forEachIndexed { idx, n ->
-            val underline = when {
-                lastCommitFailedRow == idx -> UnderlineState.RED
-                idx == activeRowIndex -> UnderlineState.BLUE
-                else -> UnderlineState.NONE
-            }
-
-            rows.add(
-                RegistryRow(
-                    number = n,
-                    info = registryStore.getInfo(n),
-                    underline = underline
-                )
-            )
-        }
-
-        val underlineNew = if (numbers.size == activeRowIndex) {
-            UnderlineState.BLUE
-        } else {
-            UnderlineState.NONE
-        }
-
-        rows.add(
-            RegistryRow(
-                number = null,
-                info = TransportInfo(TransportType.NONE, false),
-                underline = underlineNew
-            )
-        )
-
-        return rows
+        return registryController.getRegistryRows()
     }
 
     fun setRegistryActiveRow(pos: Int) {
-        activeRowIndex = pos.coerceAtLeast(0)
-        lastCommitFailedRow = null
+        registryController.setRegistryActiveRow(pos)
     }
 
-    fun getRegistryActiveRow(): Int = activeRowIndex
+    fun getRegistryActiveRow(): Int {
+        return registryController.getRegistryActiveRow()
+    }
 
     fun commitRegistryNumber(position: Int, oldNumber: Int?, newText: String): CommitResult {
-        val trimmed = newText.trim()
-        val newNumber = trimmed.toIntOrNull()
-
-        if (trimmed.isBlank()) {
-            if (oldNumber != null) {
-                registryStore.removeNumber(oldNumber)
-                queueManager.removeByNumber(oldNumber)
-                publishSnapshot(pushToServer = true)
-            }
-
-            lastCommitFailedRow = null
-            activeRowIndex = position.coerceAtLeast(0)
-
-            tickRegistry()
-            refreshSyncPanelState()
-            return CommitResult.OK
-        }
-
-        if (newNumber == null || newNumber !in 1..99) {
-            lastCommitFailedRow = position
-            tickRegistry()
-            return CommitResult.ERROR_CLEAR
-        }
-
-        val res = registryStore.upsertNumber(oldNumber, newNumber)
-
-        if (res.isFailure) {
-            lastCommitFailedRow = position
-            tickRegistry()
-            return CommitResult.ERROR_CLEAR
-        }
-
-        if (oldNumber != null && oldNumber != newNumber) {
-            queueManager.replaceNumber(
-                oldNumber = oldNumber,
-                newNumber = newNumber,
-                isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
-            )
-            publishSnapshot(pushToServer = true)
-        }
-
-        lastCommitFailedRow = null
-        activeRowIndex = (position + 1).coerceAtLeast(0)
-
-        tickRegistry()
-        refreshSyncPanelState()
-        return CommitResult.OK
+        return registryController.commitRegistryNumber(position, oldNumber, newText)
     }
 
     fun sortRegistryNumbersForClose() {
-        registryStore.sortNumbersAscending()
-        activeRowIndex = 0
-        lastCommitFailedRow = null
-        tickRegistry()
-        refreshSyncPanelState()
+        registryController.sortRegistryNumbersForClose()
     }
 
     fun onRegistryCategoryAction(number: Int, action: DriverRegistryAdapter.CategoryAction) {
-        when (action) {
-            DriverRegistryAdapter.CategoryAction.BUS ->
-                setRegistryTransportType(number, TransportType.BUS)
-
-            DriverRegistryAdapter.CategoryAction.VAN ->
-                setRegistryTransportType(number, TransportType.VAN)
-
-            DriverRegistryAdapter.CategoryAction.MY_CAR ->
-                toggleRegistryMyCar(number)
-
-            DriverRegistryAdapter.CategoryAction.CLEAR ->
-                clearRegistryCategories(number)
-        }
-    }
-
-    fun setRegistryTransportType(number: Int, type: TransportType) {
-        registryStore.setTransportType(number, type)
-        tickRegistry()
-    }
-
-    fun toggleRegistryMyCar(number: Int) {
-        registryStore.toggleMyCar(number)
-        tickRegistry()
-        refreshSyncPanelState()
-    }
-
-    fun clearRegistryCategories(number: Int) {
-        registryStore.clearCategories(number)
-        tickRegistry()
-        refreshSyncPanelState()
+        registryController.onRegistryCategoryAction(number, action)
     }
 
     fun onServerPanelLongPress() {
-        if (syncEnabled) {
-            stopSync()
-            return
-        }
-
-        if (!networkMonitor.isCurrentlyOnline()) {
-            networkAlertActive = true
-            _networkAlertVisible.value = true
-            setSyncState(SyncState.NoNetwork)
-            return
-        }
-
-        if (registryStore.getMyCar() == null) {
-            setSyncState(SyncState.NeedMyCar)
-            _syncMessage.value = "Для синхронизации сначала укажи личный номер в категории MY CAR."
-            return
-        }
-
-        shouldRestoreSyncAfterNetworkReturn = false
-        syncEnabled = true
-        pendingOfferRequest = false
-        _syncOffer.value = null
-        latestRemoteSnapshot = null
-        stopSyncCountdown()
-        startSyncHeartbeat()
-        setSyncState(SyncState.Connecting)
-        syncRepository.start(this)
+        syncCoordinator.onServerPanelLongPress()
     }
 
     fun onServerPanelClick() {
-        if (!syncEnabled) return
-        pendingOfferRequest = true
-        syncRepository.requestLatestSnapshot()
+        syncCoordinator.onServerPanelClick()
     }
 
     fun acceptSyncOffer() {
-        val offer = _syncOffer.value ?: return
-        applyRemoteQueue(offer.snapshot.queue)
-        _syncOffer.value = null
-        pendingOfferRequest = false
-        updateSyncStateFromLatestSnapshot()
+        syncCoordinator.acceptSyncOffer()
     }
 
     fun declineSyncOffer() {
-        _syncOffer.value = null
-        pendingOfferRequest = false
-        updateSyncStateFromLatestSnapshot()
+        syncCoordinator.declineSyncOffer()
     }
 
     fun clearSyncOffer() {
-        _syncOffer.value = null
-        pendingOfferRequest = false
+        syncCoordinator.clearSyncOffer()
     }
 
     fun onNetworkAlertAcknowledged() {
-        networkAlertActive = false
-        _networkAlertVisible.value = false
-
-        if (networkMonitor.isCurrentlyOnline() && shouldRestoreSyncAfterNetworkReturn) {
-            reconnectAfterNetworkReturn()
-        } else if (!networkMonitor.isCurrentlyOnline()) {
-            setSyncState(SyncState.NoNetwork)
-        } else {
-            refreshSyncPanelState()
-        }
+        syncCoordinator.onNetworkAlertAcknowledged()
     }
 
     fun onSyncMessageShown() {
         _syncMessage.value = null
     }
 
-    override fun onSyncStateChanged(state: SyncState) {
-        if (_syncOffer.value != null || networkAlertActive) {
-            return
-        }
-
-        when (state) {
-            is SyncState.LockedByMe,
-            is SyncState.LockedByOther -> startSyncCountdown()
-            else -> {
-                if (!shouldKeepSyncCountdownRunning()) {
-                    stopSyncCountdown()
-                }
-            }
-        }
-
-        if (latestRemoteSnapshot != null) {
-            updateSyncStateFromLatestSnapshot()
-        } else {
-            setSyncState(state)
-        }
-    }
-
-    override fun onRemoteSnapshot(snapshot: RemoteQueueSnapshot) {
-        latestRemoteSnapshot = snapshot
-
-        if (pendingOfferRequest) {
-            pendingOfferRequest = false
-
-            val remoteQueue = snapshot.queue
-            val localQueue = queueManager.snapshot()
-
-            if (remoteQueue != localQueue) {
-                val offer = SyncOffer(
-                    snapshot = snapshot,
-                    secondsRemaining = SYNC_OFFER_SECONDS
-                )
-                _syncOffer.postValue(offer)
-                setSyncState(
-                    SyncState.OfferAvailable(
-                        authorNumber = snapshot.authorNumber,
-                        secondsLeft = SYNC_OFFER_SECONDS
-                    )
-                )
-                return
-            }
-        }
-
-        if (!networkAlertActive) {
-            updateSyncStateFromLatestSnapshot()
-        }
-    }
-
-    override fun onBlocked(reason: String) {
-        pendingOfferRequest = false
-        _syncMessage.postValue(reason)
-    }
-
     override fun onCleared() {
-        stopSyncCountdown()
-        stopSyncHeartbeat()
-        stopNetworkStatePolling()
-        syncRepository.stop()
-        networkMonitor.stop()
+        syncCoordinator.release()
         super.onCleared()
-    }
-
-    private fun handleNetworkChanged(isOnline: Boolean) {
-        lastKnownOnline = isOnline
-
-        if (!isOnline) {
-            if (!networkAlertActive) {
-                networkAlertActive = true
-                _networkAlertVisible.postValue(true)
-            }
-
-            if (syncEnabled) {
-                handleSyncConnectionLost()
-            } else {
-                setSyncState(SyncState.NoNetwork)
-            }
-            return
-        }
-
-        if (networkAlertActive) {
-            networkAlertActive = false
-            _networkAlertVisible.postValue(false)
-        }
-
-        if (shouldRestoreSyncAfterNetworkReturn) {
-            reconnectAfterNetworkReturn()
-            return
-        }
-
-        refreshSyncPanelState()
-    }
-
-    private fun handleSyncConnectionLost() {
-        shouldRestoreSyncAfterNetworkReturn = true
-        syncEnabled = false
-        pendingOfferRequest = false
-        latestRemoteSnapshot = null
-        heartbeatMisses = 0
-        stopSyncCountdown()
-        stopSyncHeartbeat()
-        _syncOffer.postValue(null)
-        syncRepository.stop()
-        setSyncState(SyncState.NoNetwork)
-    }
-
-    private fun reconnectAfterNetworkReturn() {
-        if (!networkMonitor.isCurrentlyOnline()) {
-            setSyncState(SyncState.NoNetwork)
-            return
-        }
-
-        if (registryStore.getMyCar() == null) {
-            shouldRestoreSyncAfterNetworkReturn = false
-            refreshSyncPanelState()
-            return
-        }
-
-        shouldRestoreSyncAfterNetworkReturn = false
-        syncEnabled = true
-        pendingOfferRequest = false
-        latestRemoteSnapshot = null
-        heartbeatMisses = 0
-        stopSyncCountdown()
-        startSyncHeartbeat()
-
-        setSyncState(SyncState.Connecting)
-        syncRepository.start(this)
-    }
-
-    private fun startSyncHeartbeat() {
-        heartbeatMisses = 0
-        stopSyncHeartbeat()
-        mainHandler.postDelayed(syncHeartbeatRunnable, HEARTBEAT_INTERVAL_MS)
-    }
-
-    private fun stopSyncHeartbeat() {
-        mainHandler.removeCallbacks(syncHeartbeatRunnable)
-    }
-
-    private fun startNetworkStatePolling() {
-        stopNetworkStatePolling()
-        mainHandler.post(networkStatePollRunnable)
-    }
-
-    private fun stopNetworkStatePolling() {
-        mainHandler.removeCallbacks(networkStatePollRunnable)
-    }
-
-    private fun stopSync() {
-        shouldRestoreSyncAfterNetworkReturn = false
-        syncEnabled = false
-        pendingOfferRequest = false
-        latestRemoteSnapshot = null
-        heartbeatMisses = 0
-        stopSyncCountdown()
-        stopSyncHeartbeat()
-        syncRepository.stop()
-        _syncOffer.value = null
-        setSyncState(SyncState.Off)
     }
 
     private fun tickRegistry() {
         _registryUiTick.value = (_registryUiTick.value ?: 0L) + 1L
-    }
-
-    private fun publishSnapshot(pushToServer: Boolean) {
-        val snap = queueManager.snapshot()
-        _queueItems.value = snap
-        queueStateStore.save(snap)
-
-        if (pushToServer && syncEnabled) {
-            val myCarNumber = registryStore.getMyCar()
-            syncRepository.pushSnapshot(
-                queue = snap,
-                authorNumber = myCarNumber
-            )
-        }
-    }
-
-    private fun applyRemoteQueue(remoteQueue: List<QueueItem>) {
-        queueManager.restoreFromSnapshot(
-            snapshot = remoteQueue,
-            isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
-        )
-
-        queueManager.validateAgainstRegistry { registryStore.isAllowed(it) }
-        publishSnapshot(pushToServer = false)
-    }
-
-    private fun refreshSyncPanelState() {
-        if (syncEnabled) return
-
-        val nextState = when {
-            !networkMonitor.isCurrentlyOnline() -> SyncState.NoNetwork
-            registryStore.getMyCar() == null -> SyncState.NeedMyCar
-            else -> SyncState.Off
-        }
-
-        setSyncState(nextState)
-    }
-
-    private fun updateSyncStateFromLatestSnapshot() {
-        if (!syncEnabled) return
-
-        val snapshot = latestRemoteSnapshot
-        if (snapshot == null) {
-            setSyncState(SyncState.OnlineFree)
-            return
-        }
-
-        val now = System.currentTimeMillis()
-        val lockOwner = snapshot.lockOwnerDeviceId
-        val secondsLeft = ((snapshot.lockUntilMs - now).coerceAtLeast(0L) / 1000L).toInt()
-
-        val state = when {
-            lockOwner.isNullOrBlank() || snapshot.lockUntilMs <= now -> SyncState.OnlineFree
-            lockOwner == syncRepository.currentDeviceId() -> {
-                SyncState.LockedByMe(
-                    ownerNumber = snapshot.lockOwnerNumber,
-                    secondsLeft = secondsLeft
-                )
-            }
-            else -> {
-                SyncState.LockedByOther(
-                    ownerNumber = snapshot.lockOwnerNumber,
-                    secondsLeft = secondsLeft
-                )
-            }
-        }
-
-        setSyncState(state)
-
-        if (!shouldKeepSyncCountdownRunning()) {
-            stopSyncCountdown()
-        }
-    }
-
-    private fun startSyncCountdown() {
-        stopSyncCountdown()
-        mainHandler.post(syncCountdownRunnable)
-    }
-
-    private fun stopSyncCountdown() {
-        mainHandler.removeCallbacks(syncCountdownRunnable)
-    }
-
-    private fun shouldKeepSyncCountdownRunning(): Boolean {
-        if (!syncEnabled) return false
-        val snapshot = latestRemoteSnapshot ?: return false
-        val now = System.currentTimeMillis()
-        return !snapshot.lockOwnerDeviceId.isNullOrBlank() && snapshot.lockUntilMs > now
-    }
-
-    private fun isQueueEditingBlocked(): Boolean {
-        return syncEnabled && !syncRepository.isEditableNow()
-    }
-
-    private fun guardQueueEditing(): QueueManager.AddResult? {
-        if (!isQueueEditingBlocked()) return null
-        _syncMessage.postValue("Список сейчас изменяет другой телефон.")
-        return QueueManager.AddResult.DuplicateInQueue
-    }
-
-    private fun guardQueueEditingOperation(): QueueManager.OperationResult? {
-        if (!isQueueEditingBlocked()) return null
-        _syncMessage.postValue("Список сейчас изменяет другой телефон.")
-        return QueueManager.OperationResult.InvalidMove
-    }
-
-    private fun setSyncState(state: SyncState) {
-        _syncState.postValue(state)
-        _syncPanelText.postValue(renderSyncText(state))
-    }
-
-    private fun renderSyncText(state: SyncState): String {
-        return when (state) {
-            SyncState.Off -> "SYNC OFF"
-            SyncState.Connecting -> "CONNECTING..."
-            SyncState.NeedMyCar -> "SET MY CAR"
-            SyncState.OnlineFree -> "SYNC ON"
-            SyncState.NoNetwork -> "NO NETWORK"
-            is SyncState.OfferAvailable -> "OFFER ${state.secondsLeft}s"
-            is SyncState.LockedByMe -> "CHANGE LIST ${state.secondsLeft}s"
-            is SyncState.LockedByOther -> {
-                val owner = state.ownerNumber?.toString() ?: "?"
-                "CHANGE $owner ${state.secondsLeft}s"
-            }
-        }
-    }
-
-    companion object {
-        private const val SYNC_OFFER_SECONDS = 15
-        private const val HEARTBEAT_INTERVAL_MS = 3_000L
-        private const val HEARTBEAT_FAIL_LIMIT = 1
-        private const val NETWORK_POLL_INTERVAL_MS = 1_000L
     }
 }

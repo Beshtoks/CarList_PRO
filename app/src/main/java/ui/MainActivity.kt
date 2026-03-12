@@ -1,7 +1,6 @@
 package com.carlist.pro.ui
 
 import android.Manifest
-import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -11,10 +10,6 @@ import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.os.VibrationEffect
-import android.os.Vibrator
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
@@ -45,10 +40,13 @@ import com.carlist.pro.databinding.ActivityMainBinding
 import com.carlist.pro.domain.QueueItem
 import com.carlist.pro.domain.QueueManager
 import com.carlist.pro.domain.Status
-import com.carlist.pro.domain.TransportType
-import com.carlist.pro.domain.sync.SyncOffer
 import com.carlist.pro.domain.sync.SyncState
 import com.carlist.pro.sync.SyncForegroundService
+import com.carlist.pro.ui.controller.InputTechController
+import com.carlist.pro.ui.controller.InputUiController
+import com.carlist.pro.ui.controller.QueueClipboardHelper
+import com.carlist.pro.ui.controller.SyncUiController
+import com.carlist.pro.ui.controller.VoiceSessionController
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class MainActivity : AppCompatActivity() {
@@ -58,18 +56,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var adapter: QueueAdapter
     private lateinit var layoutManager: LinearLayoutManager
     private lateinit var feedback: SystemFeedback
-    private lateinit var voiceInputManager: VoiceInputManager
+    private lateinit var voiceSessionController: VoiceSessionController
+    private lateinit var inputTechController: InputTechController
+    private lateinit var inputUiController: InputUiController
+    private lateinit var queueClipboardHelper: QueueClipboardHelper
+    private lateinit var syncUiController: SyncUiController
 
     private var imeVisibleNow = false
     private var autoCopyEnabled = false
     private var isDragging = false
 
-    private var techTapCount = 0
-    private var techFirstTapAtMs = 0L
-    private var techCountdownActive = false
-
     private var isTechMenuOpen = false
-    private var isManualInputMode = false
 
     private var lastQueueSize = 0
     private var pendingScrollToBottom = false
@@ -78,69 +75,9 @@ class MainActivity : AppCompatActivity() {
     private var suppressNextQueueAutoScroll = false
     private var backgroundServiceStarted = false
 
-    private val gestureHandler = Handler(Looper.getMainLooper())
-
-    private var syncOfferDialog: AlertDialog? = null
-    private var syncOfferHandled = false
-    private var currentSyncOffer: SyncOffer? = null
-    private var syncOfferSecondsLeft = 0
-
-    private var networkAlertDialog: AlertDialog? = null
-    private var networkAlertAcknowledged = false
-
-    private val techTapTimeoutRunnable = Runnable {
-        if (techTapCount > 0 || techCountdownActive) {
-            resetTechTapSequence()
-            applyInputVisualState(imeVisibleNow)
-        }
-    }
-
-    private val syncOfferCountdownRunnable = object : Runnable {
-        override fun run() {
-            val offer = currentSyncOffer ?: return
-
-            if (syncOfferSecondsLeft <= 0) {
-                dismissSyncOfferDialog(accepted = false)
-                return
-            }
-
-            updateSyncOfferDialogText(offer, syncOfferSecondsLeft)
-            syncOfferSecondsLeft -= 1
-            gestureHandler.postDelayed(this, 1000L)
-        }
-    }
-
-    private val networkVibrationRunnable = object : Runnable {
-        override fun run() {
-            if (networkAlertDialog?.isShowing != true || networkAlertAcknowledged) return
-
-            vibrateNetworkPulse()
-            gestureHandler.postDelayed(this, 4_000L)
-        }
-    }
-
-    private var micSessionActive = false
-    private val micSilenceTimeoutMs = 5_000L
-
-    private val micSilenceTimeoutRunnable = Runnable {
-        if (micSessionActive) {
-            stopMicSession()
-        }
-    }
-
-    private val micRestoreSayNumberRunnable = Runnable {
-        if (micSessionActive) {
-            setMicButtonListeningState()
-        }
-    }
-
     private val recordAudioPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
-                startMicSession()
-            } else {
-                // Без звука
-            }
+            voiceSessionController.onRecordAudioPermissionResult(granted)
         }
 
     private val postNotificationsPermissionLauncher =
@@ -167,34 +104,75 @@ class MainActivity : AppCompatActivity() {
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
         feedback = SystemFeedback(this)
 
-        voiceInputManager = VoiceInputManager(
+        syncUiController = SyncUiController(
             context = this,
-            onListeningStarted = {
-                runOnUiThread {
-                    if (!micSessionActive) return@runOnUiThread
-                    setMicButtonListeningState()
-                    restartMicSilenceTimer()
-                }
+            onAcceptSyncOffer = {
+                viewModel.acceptSyncOffer()
             },
-            onSpeechDetected = {
-                runOnUiThread {
-                    if (!micSessionActive) return@runOnUiThread
-                    restartMicSilenceTimer()
-                }
+            onDeclineSyncOffer = {
+                viewModel.declineSyncOffer()
+            },
+            onNetworkAlertAcknowledged = {
+                viewModel.onNetworkAlertAcknowledged()
+            }
+        )
+
+        val clipboardManager = getSystemService(ClipboardManager::class.java)
+        queueClipboardHelper = QueueClipboardHelper(
+            clipboardManager = clipboardManager,
+            transportInfoProvider = { number -> viewModel.getTransportInfo(number) }
+        )
+
+        inputUiController = InputUiController()
+
+        inputTechController = InputTechController(
+            onStartManualInputMode = {
+                val imm = getSystemService(InputMethodManager::class.java)
+                inputUiController.startManualInputMode(binding.numberInput, imm)
+                applyInputVisualState(true)
+            },
+            onLockManualInput = {
+                inputUiController.lockManualInput(binding.numberInput)
+            },
+            onApplyInputVisualState = { imeVisible ->
+                applyInputVisualState(imeVisible)
+            },
+            onShowCountdownValue = { text ->
+                binding.inputHint.text = text
+            },
+            onOpenTechnicalMenu = {
+                openTechnicalMenuInternal()
+            }
+        )
+
+        voiceSessionController = VoiceSessionController(
+            context = this,
+            hasRecordAudioPermission = {
+                ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED
+            },
+            requestRecordAudioPermission = {
+                recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            },
+            onSessionStarted = {
+                feedback.setSoundEnabled(false)
+            },
+            onSessionStopped = {
+                feedback.setSoundEnabled(true)
             },
             onNumberRecognized = { recognizedNumber ->
-                runOnUiThread {
-                    if (!micSessionActive) return@runOnUiThread
-                    restartMicSilenceTimer()
-                    handleVoiceRecognizedNumber(recognizedNumber)
-                }
+                handleVoiceRecognizedNumber(recognizedNumber)
             },
-            onFailure = {
-                runOnUiThread {
-                    if (!micSessionActive) return@runOnUiThread
-                    restartMicSilenceTimer()
-                    scheduleNextVoiceListen()
-                }
+            applyMicOffState = {
+                setMicButtonOffState()
+            },
+            applyMicListeningState = {
+                setMicButtonListeningState()
+            },
+            applyMicNotFoundState = {
+                showMicNotFoundVisualState()
             }
         )
 
@@ -209,7 +187,7 @@ class MainActivity : AppCompatActivity() {
         binding.queueRecycler.layoutManager = layoutManager
         binding.queueRecycler.adapter = adapter
 
-        setupInputPanel()
+        inputUiController.setupInputPanel(binding.numberInput, binding.inputPanel)
         setupButtons()
         setupImeHandling()
         setupServerPanel()
@@ -262,17 +240,17 @@ class MainActivity : AppCompatActivity() {
 
         viewModel.syncOffer.observe(this) { offer ->
             if (offer == null) {
-                dismissSyncOfferDialogOnly()
+                syncUiController.dismissSyncOfferDialogOnly()
             } else {
-                showSyncOfferDialog(offer)
+                syncUiController.showSyncOfferDialog(offer)
             }
         }
 
         viewModel.networkAlertVisible.observe(this) { visible ->
             if (visible) {
-                showNetworkAlertDialog()
+                syncUiController.showNetworkAlertDialog()
             } else {
-                dismissNetworkAlertDialogOnly()
+                syncUiController.dismissNetworkAlertDialogOnly()
             }
         }
 
@@ -286,7 +264,7 @@ class MainActivity : AppCompatActivity() {
             if (!isEnter) return@setOnEditorActionListener false
 
             if (isTechMenuOpen) return@setOnEditorActionListener true
-            if (!isManualInputMode) return@setOnEditorActionListener true
+            if (!inputUiController.isManualInputMode()) return@setOnEditorActionListener true
 
             handleManualSubmit()
             true
@@ -319,7 +297,7 @@ class MainActivity : AppCompatActivity() {
             ViewCompat.requestApplyInsets(window.decorView)
         }
 
-        lockManualInput()
+        inputUiController.lockManualInput(binding.numberInput)
         applyInputVisualState(false)
         setMicButtonOffState()
     }
@@ -337,17 +315,15 @@ class MainActivity : AppCompatActivity() {
 
             when {
                 releasedInsideInputPanel -> {
-                    resetTechTapSequence()
-                    startManualInputMode()
+                    inputTechController.onInputPanelReleased()
                 }
 
                 releasedInsideCounterPanel -> {
-                    handleTechTaps()
+                    inputTechController.onCounterPanelReleased()
                 }
 
-                techTapCount > 0 || techCountdownActive -> {
-                    resetTechTapSequence()
-                    applyInputVisualState(imeVisibleNow)
+                else -> {
+                    inputTechController.onOutsideReleased(imeVisibleNow)
                 }
             }
         }
@@ -359,8 +335,7 @@ class MainActivity : AppCompatActivity() {
 
     fun onTechnicalMenuClosed() {
         isTechMenuOpen = false
-        resetTechTapSequence()
-        applyInputVisualState(imeVisibleNow)
+        inputTechController.onTechnicalMenuClosed(imeVisibleNow)
 
         val currentQueue = viewModel.queueItems.value.orEmpty()
         adapter.submitItems(currentQueue)
@@ -424,300 +399,11 @@ class MainActivity : AppCompatActivity() {
         binding.infoText.setTextColor(color)
     }
 
-    private fun showSyncOfferDialog(offer: SyncOffer) {
-        currentSyncOffer = offer
-        syncOfferHandled = false
-        syncOfferSecondsLeft = offer.secondsRemaining.coerceAtLeast(0)
-
-        if (syncOfferDialog == null) {
-            syncOfferDialog = MaterialAlertDialogBuilder(this)
-                .setTitle("SYNC OFFER")
-                .setMessage("")
-                .setCancelable(false)
-                .setPositiveButton("YES") { _, _ ->
-                    dismissSyncOfferDialog(accepted = true)
-                }
-                .setNegativeButton("NO") { _, _ ->
-                    dismissSyncOfferDialog(accepted = false)
-                }
-                .create()
-
-            syncOfferDialog?.setOnDismissListener {
-                if (!syncOfferHandled) {
-                    syncOfferHandled = true
-                    gestureHandler.removeCallbacks(syncOfferCountdownRunnable)
-                    currentSyncOffer = null
-                    viewModel.declineSyncOffer()
-                }
-            }
-        }
-
-        updateSyncOfferDialogText(offer, syncOfferSecondsLeft)
-
-        if (syncOfferDialog?.isShowing != true) {
-            syncOfferDialog?.show()
-        }
-
-        gestureHandler.removeCallbacks(syncOfferCountdownRunnable)
-        gestureHandler.post(syncOfferCountdownRunnable)
-    }
-
-    private fun updateSyncOfferDialogText(offer: SyncOffer, secondsLeft: Int) {
-        val authorText = offer.snapshot.authorNumber?.let { "№$it" } ?: "неизвестно"
-        val updatedAtMs = offer.snapshot.updatedAtMs
-        val minutesAgo = if (updatedAtMs > 0L) {
-            ((System.currentTimeMillis() - updatedAtMs).coerceAtLeast(0L) / 60_000L).toInt()
-        } else {
-            0
-        }
-
-        val dialog = syncOfferDialog ?: return
-
-        dialog.setTitle("SYNC OFFER")
-        dialog.setMessage(
-            "Последний список выложил $authorText.\n" +
-                    "Выложен $minutesAgo мин. назад.\n" +
-                    "Принять список?\n" +
-                    "Осталось: ${secondsLeft.coerceAtLeast(0)} сек."
-        )
-    }
-
-    private fun dismissSyncOfferDialog(accepted: Boolean) {
-        if (syncOfferHandled) return
-
-        syncOfferHandled = true
-        gestureHandler.removeCallbacks(syncOfferCountdownRunnable)
-
-        val dialog = syncOfferDialog
-        currentSyncOffer = null
-
-        if (accepted) {
-            viewModel.acceptSyncOffer()
-        } else {
-            viewModel.declineSyncOffer()
-        }
-
-        dialog?.dismiss()
-        syncOfferDialog = null
-    }
-
-    private fun dismissSyncOfferDialogOnly() {
-        gestureHandler.removeCallbacks(syncOfferCountdownRunnable)
-        currentSyncOffer = null
-        syncOfferHandled = true
-        syncOfferDialog?.dismiss()
-        syncOfferDialog = null
-    }
-
-    private fun showNetworkAlertDialog() {
-        if (networkAlertDialog?.isShowing == true) return
-
-        networkAlertAcknowledged = false
-
-        val density = resources.displayMetrics.density
-
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(
-                (24 * density).toInt(),
-                (20 * density).toInt(),
-                (24 * density).toInt(),
-                (20 * density).toInt()
-            )
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 18f * density
-                setColor(0xFF1A001F.toInt())
-                setStroke((1 * density).toInt(), 0xFF5A1A2A.toInt())
-            }
-        }
-
-        val titleView = TextView(this).apply {
-            text = "WARNING"
-            setTextColor(0xFFFF4444.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
-            gravity = Gravity.CENTER
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-        }
-
-        val messageView = TextView(this).apply {
-            text = "No network connection"
-            setTextColor(0xFFFF4444.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-            gravity = Gravity.CENTER
-            setPadding(0, (10 * density).toInt(), 0, 0)
-        }
-
-        container.addView(
-            titleView,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
-
-        container.addView(
-            messageView,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
-
-        container.setOnClickListener {
-            acknowledgeNetworkAlert()
-        }
-
-        val dialog = AlertDialog.Builder(this)
-            .setView(container)
-            .create()
-
-        dialog.setCancelable(false)
-        dialog.setCanceledOnTouchOutside(false)
-        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        dialog.setOnKeyListener { _, _, _ -> true }
-
-        networkAlertDialog = dialog
-        dialog.show()
-
-        gestureHandler.removeCallbacks(networkVibrationRunnable)
-        gestureHandler.post(networkVibrationRunnable)
-    }
-
-    private fun acknowledgeNetworkAlert() {
-        if (networkAlertAcknowledged) return
-
-        networkAlertAcknowledged = true
-        gestureHandler.removeCallbacks(networkVibrationRunnable)
-        stopVibration()
-        viewModel.onNetworkAlertAcknowledged()
-        dismissNetworkAlertDialogOnly()
-    }
-
-    private fun dismissNetworkAlertDialogOnly() {
-        gestureHandler.removeCallbacks(networkVibrationRunnable)
-        stopVibration()
-        networkAlertDialog?.dismiss()
-        networkAlertDialog = null
-    }
-
-    private fun vibrateNetworkPulse() {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            getSystemService(Vibrator::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(VIBRATOR_SERVICE) as? Vibrator
-        } ?: return
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(3_000L, VibrationEffect.DEFAULT_AMPLITUDE))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(3_000L)
-        }
-    }
-
-    private fun stopVibration() {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            getSystemService(Vibrator::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(VIBRATOR_SERVICE) as? Vibrator
-        } ?: return
-
-        vibrator.cancel()
-    }
-
-    private fun setupInputPanel() {
-
-        binding.numberInput.isLongClickable = false
-        binding.numberInput.setTextIsSelectable(false)
-        binding.numberInput.isClickable = false
-        binding.numberInput.isFocusable = false
-        binding.numberInput.isFocusableInTouchMode = false
-        binding.numberInput.isCursorVisible = false
-
-        binding.inputPanel.setOnLongClickListener { true }
-
-        binding.numberInput.setOnClickListener(null)
-        binding.numberInput.setOnLongClickListener { true }
-    }
-
-    private fun startManualInputMode() {
-        isManualInputMode = true
-
-        binding.numberInput.isFocusable = true
-        binding.numberInput.isFocusableInTouchMode = true
-        binding.numberInput.isCursorVisible = true
-        binding.numberInput.requestFocus()
-        binding.numberInput.setSelection(binding.numberInput.text?.length ?: 0)
-
-        val imm = getSystemService(InputMethodManager::class.java)
-        imm.showSoftInput(binding.numberInput, InputMethodManager.SHOW_IMPLICIT)
-
-        applyInputVisualState(true)
-    }
-
-    private fun lockManualInput() {
-        isManualInputMode = false
-        binding.numberInput.clearFocus()
-        binding.numberInput.isFocusable = false
-        binding.numberInput.isFocusableInTouchMode = false
-        binding.numberInput.isCursorVisible = false
-    }
-
-    private fun handleTechTaps() {
-
-        val now = System.currentTimeMillis()
-
-        if (techTapCount == 0) {
-            techFirstTapAtMs = now
-        } else if (now - techFirstTapAtMs > 5_000L) {
-            resetTechTapSequence()
-            techFirstTapAtMs = now
-        }
-
-        techTapCount++
-
-        gestureHandler.removeCallbacks(techTapTimeoutRunnable)
-        gestureHandler.postDelayed(techTapTimeoutRunnable, 5_000L)
-
-        when (techTapCount) {
-            1 -> {}
-
-            2 -> {
-                techCountdownActive = true
-                binding.inputHint.text = "3"
-                applyInputVisualState(true)
-            }
-
-            3 -> binding.inputHint.text = "2"
-            4 -> binding.inputHint.text = "1"
-
-            5 -> {
-                gestureHandler.removeCallbacks(techTapTimeoutRunnable)
-                binding.inputHint.text = "OPEN"
-                techTapCount = 0
-                techCountdownActive = false
-                openTechnicalMenu()
-            }
-        }
-    }
-
-    private fun resetTechTapSequence() {
-        gestureHandler.removeCallbacks(techTapTimeoutRunnable)
-        techTapCount = 0
-        techFirstTapAtMs = 0L
-        techCountdownActive = false
-    }
-
-    private fun openTechnicalMenu() {
-
+    private fun openTechnicalMenuInternal() {
         isTechMenuOpen = true
 
-        lockManualInput()
-        resetTechTapSequence()
+        inputUiController.lockManualInput(binding.numberInput)
+        inputTechController.reset()
 
         val imm = getSystemService(InputMethodManager::class.java)
         imm.hideSoftInputFromWindow(binding.numberInput.windowToken, 0)
@@ -771,23 +457,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applyInputVisualState(imeVisible: Boolean) {
-
-        if (isTechMenuOpen) return
-
-        if (techCountdownActive) {
-            binding.inputHint.visibility = View.VISIBLE
-            binding.numberInput.isCursorVisible = false
-            return
-        }
-
-        if (imeVisible && isManualInputMode) {
-            binding.inputHint.visibility = View.INVISIBLE
-            binding.numberInput.isCursorVisible = true
-        } else {
-            binding.inputHint.visibility = View.VISIBLE
-            binding.numberInput.isCursorVisible = false
-            binding.inputHint.text = "Nr / 🛠"
-        }
+        inputUiController.applyInputVisualState(
+            isTechMenuOpen = isTechMenuOpen,
+            isCountdownActive = inputTechController.isCountdownActive(),
+            imeVisible = imeVisible,
+            inputHint = binding.inputHint,
+            numberInput = binding.numberInput
+        )
     }
 
     private fun setupButtons() {
@@ -796,7 +472,7 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnAutocopy.setOnClickListener {
             val list = viewModel.queueItems.value.orEmpty()
-            copyQueueOnce(list)
+            lastAutoCopiedText = queueClipboardHelper.copyQueueOnce(list)
             feedback.ok()
         }
 
@@ -808,11 +484,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnClearList.setOnClickListener {
-            if (micSessionActive) {
-                stopMicSession()
-            } else {
-                ensureMicPermissionAndStart()
-            }
+            voiceSessionController.toggle()
         }
 
         binding.btnClearList.setOnLongClickListener {
@@ -844,84 +516,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun ensureMicPermissionAndStart() {
-        when {
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED -> {
-                startMicSession()
-            }
-
-            else -> {
-                recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            }
-        }
-    }
-
-    private fun startMicSession() {
-        if (!voiceInputManager.isAvailable()) {
-            return
-        }
-
-        micSessionActive = true
-        feedback.setSoundEnabled(false)
-        setMicButtonListeningState()
-        restartMicSilenceTimer()
-        scheduleNextVoiceListen()
-    }
-
-    private fun stopMicSession() {
-        micSessionActive = false
-        feedback.setSoundEnabled(true)
-        gestureHandler.removeCallbacks(micSilenceTimeoutRunnable)
-        gestureHandler.removeCallbacks(micRestoreSayNumberRunnable)
-        voiceInputManager.stopListening()
-        setMicButtonOffState()
-    }
-
-    private fun restartMicSilenceTimer() {
-        gestureHandler.removeCallbacks(micSilenceTimeoutRunnable)
-        gestureHandler.postDelayed(micSilenceTimeoutRunnable, micSilenceTimeoutMs)
-    }
-
-    private fun scheduleNextVoiceListen() {
-        if (!micSessionActive) return
-
-        voiceInputManager.stopListening()
-        voiceInputManager.startListening()
-    }
-
-    private fun handleVoiceRecognizedNumber(number: Int) {
-        val result = viewModel.addNumber(number)
-
-        when (result) {
-            is QueueManager.AddResult.Added -> {
-                feedback.ok()
-                setMicButtonListeningState()
-                requestAutoCopyIfNeeded()
-            }
-
-            QueueManager.AddResult.DuplicateInQueue -> {
-                feedback.error()
-                showInputProblemDialog("DUPLICATE NUMBER")
-                showMicNotFoundStateTemporarily()
-            }
-
-            QueueManager.AddResult.NotInRegistry,
-            QueueManager.AddResult.InvalidNumber -> {
-                feedback.error()
-                showInputProblemDialog("NOT IN REGISTRY")
-                showMicNotFoundStateTemporarily()
-            }
-        }
-
-        if (micSessionActive) {
-            restartMicSilenceTimer()
-            scheduleNextVoiceListen()
-        }
-    }
-
     private fun setMicButtonOffState() {
         binding.btnClearList.text = "mic🔊/CLEAR LIST"
         binding.btnClearList.backgroundTintList = null
@@ -934,13 +528,10 @@ class MainActivity : AppCompatActivity() {
         binding.btnClearList.setBackgroundResource(R.drawable.bg_button_clear_green_3d)
     }
 
-    private fun showMicNotFoundStateTemporarily() {
+    private fun showMicNotFoundVisualState() {
         binding.btnClearList.text = "not found"
         binding.btnClearList.backgroundTintList = null
         binding.btnClearList.setBackgroundResource(R.drawable.bg_button_clear_red_3d)
-
-        gestureHandler.removeCallbacks(micRestoreSayNumberRunnable)
-        gestureHandler.postDelayed(micRestoreSayNumberRunnable, 500L)
     }
 
     private fun updateAutocopyButtonText() {
@@ -972,6 +563,31 @@ class MainActivity : AppCompatActivity() {
                 feedback.error()
                 binding.numberInput.setText("")
                 showInputProblemDialog("NOT IN REGISTRY")
+            }
+        }
+    }
+
+    private fun handleVoiceRecognizedNumber(number: Int) {
+        val result = viewModel.addNumber(number)
+
+        when (result) {
+            is QueueManager.AddResult.Added -> {
+                feedback.ok()
+                requestAutoCopyIfNeeded()
+                voiceSessionController.onNumberAccepted()
+            }
+
+            QueueManager.AddResult.DuplicateInQueue -> {
+                feedback.error()
+                showInputProblemDialog("DUPLICATE NUMBER")
+                voiceSessionController.onNumberRejected()
+            }
+
+            QueueManager.AddResult.NotInRegistry,
+            QueueManager.AddResult.InvalidNumber -> {
+                feedback.error()
+                showInputProblemDialog("NOT IN REGISTRY")
+                voiceSessionController.onNumberRejected()
             }
         }
     }
@@ -1039,7 +655,7 @@ class MainActivity : AppCompatActivity() {
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         dialog.show()
 
-        gestureHandler.postDelayed({
+        binding.root.postDelayed({
             if (dialog.isShowing) {
                 dialog.dismiss()
             }
@@ -1050,72 +666,11 @@ class MainActivity : AppCompatActivity() {
         if (!autoCopyEnabled) return
 
         binding.root.post {
-            autoCopyIfQueueChanged(viewModel.queueItems.value.orEmpty())
+            lastAutoCopiedText = queueClipboardHelper.autoCopyIfQueueChanged(
+                list = viewModel.queueItems.value.orEmpty(),
+                lastAutoCopiedText = lastAutoCopiedText
+            )
         }
-    }
-
-    private fun autoCopyIfQueueChanged(list: List<QueueItem>) {
-        val text = buildQueueText(list)
-
-        if (text.isBlank()) return
-        if (text == lastAutoCopiedText) return
-
-        copyQueueText(text)
-        lastAutoCopiedText = text
-    }
-
-    private fun copyQueueOnce(list: List<QueueItem>) {
-        val text = buildQueueText(list)
-        copyQueueText(text)
-        lastAutoCopiedText = text
-    }
-
-    private fun copyQueueText(text: String) {
-        val cm = getSystemService(ClipboardManager::class.java)
-        cm.setPrimaryClip(ClipData.newPlainText("CarList_PRO Queue", text))
-    }
-
-    private fun buildQueueText(list: List<QueueItem>): String {
-        if (list.isEmpty()) return ""
-
-        val sb = StringBuilder()
-
-        list.forEachIndexed { index, item ->
-            val lineIndex = index + 1
-            sb.append(lineIndex).append(". ").append(item.number)
-
-            val info = viewModel.getTransportInfo(item.number)
-            val categoryLetters = buildCategoryLetters(info.transportType, info.isMyCar)
-            if (categoryLetters.isNotEmpty()) {
-                sb.append(" (").append(categoryLetters).append(")")
-            }
-
-            when (item.status) {
-                Status.SERVICE -> sb.append(" SERVICE")
-                Status.OFFICE -> sb.append(" OFFICE")
-                Status.JURNIEKS -> sb.append(" JURNIEKS")
-                Status.NONE -> {}
-            }
-
-            if (index != list.lastIndex) sb.append('\n')
-        }
-
-        return sb.toString()
-    }
-
-    private fun buildCategoryLetters(
-        transportType: TransportType,
-        isMyCar: Boolean
-    ): String {
-        val sb = StringBuilder()
-
-        when (transportType) {
-            TransportType.BUS -> sb.append("B")
-            TransportType.VAN -> sb.append("V")
-            TransportType.NONE -> {}
-        }
-
-        return sb.toString()
     }
 
     private fun updateMyCarCounter(queue: List<QueueItem>) {
@@ -1155,7 +710,7 @@ class MainActivity : AppCompatActivity() {
             imeVisibleNow = insets.isVisible(WindowInsetsCompat.Type.ime())
 
             if (!imeVisibleNow) {
-                lockManualInput()
+                inputTechController.onKeyboardHidden()
             }
 
             applyInputVisualState(imeVisibleNow)
@@ -1213,17 +768,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        gestureHandler.removeCallbacks(techTapTimeoutRunnable)
-        gestureHandler.removeCallbacks(syncOfferCountdownRunnable)
-        gestureHandler.removeCallbacks(networkVibrationRunnable)
-        gestureHandler.removeCallbacks(micSilenceTimeoutRunnable)
-        gestureHandler.removeCallbacks(micRestoreSayNumberRunnable)
-        stopVibration()
-        syncOfferDialog?.dismiss()
-        syncOfferDialog = null
-        networkAlertDialog?.dismiss()
-        networkAlertDialog = null
-        voiceInputManager.release()
+        syncUiController.release()
+        inputTechController.release()
+        voiceSessionController.release()
         super.onDestroy()
         feedback.release()
     }
