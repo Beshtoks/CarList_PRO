@@ -4,10 +4,10 @@ import com.carlist.pro.data.DriverRegistryStore
 import com.carlist.pro.domain.QueueManager
 import com.carlist.pro.domain.TransportInfo
 import com.carlist.pro.domain.TransportType
-import com.carlist.pro.ui.CommitResult
-import com.carlist.pro.ui.DriverRegistryAdapter
-import com.carlist.pro.ui.RegistryRow
-import com.carlist.pro.ui.UnderlineState
+import com.carlist.pro.ui.adapter.CommitResult
+import com.carlist.pro.ui.adapter.DriverRegistryAdapter
+import com.carlist.pro.ui.adapter.RegistryRow
+import com.carlist.pro.ui.adapter.UnderlineState
 
 class RegistryController(
     private val registryStore: DriverRegistryStore,

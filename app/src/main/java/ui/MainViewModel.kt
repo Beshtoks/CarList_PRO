@@ -14,6 +14,9 @@ import com.carlist.pro.domain.Status
 import com.carlist.pro.domain.TransportInfo
 import com.carlist.pro.domain.sync.SyncOffer
 import com.carlist.pro.domain.sync.SyncState
+import com.carlist.pro.ui.adapter.CommitResult
+import com.carlist.pro.ui.adapter.DriverRegistryAdapter
+import com.carlist.pro.ui.adapter.RegistryRow
 import com.carlist.pro.ui.controller.QueueEditController
 import com.carlist.pro.ui.controller.QueueStateCoordinator
 import com.carlist.pro.ui.controller.RegistryController

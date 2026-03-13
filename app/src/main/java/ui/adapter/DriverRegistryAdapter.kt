@@ -1,4 +1,4 @@
-package com.carlist.pro.ui
+package com.carlist.pro.ui.adapter
 
 import android.text.InputType
 import android.text.SpannableString
@@ -113,60 +113,50 @@ class DriverRegistryAdapter(
                 )
 
                 when (result) {
-                    CommitResult.OK -> {
-                        // UI обновится через registryUiTick
-                    }
-
+                    CommitResult.OK -> true
                     CommitResult.ERROR_CLEAR -> {
                         binding.etNumber.setText("")
-                        focusField()
+                        true
                     }
                 }
-
-                true
             }
 
-            binding.root.setOnLongClickListener {
+            binding.tvLetters.setOnClickListener {
+                val num = row.number ?: return@setOnClickListener
 
-                val num = row.number ?: return@setOnLongClickListener true
+                val popup = PopupMenu(binding.root.context, binding.tvLetters)
 
-                val popup = PopupMenu(binding.root.context, binding.root)
+                val busTitle = SpannableString("BUS")
+                busTitle.setSpan(
+                    ForegroundColorSpan(0xFFFFD54F.toInt()),
+                    0,
+                    busTitle.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
 
-                val busTitle = SpannableString("BUS      $num").apply {
-                    setSpan(
-                        ForegroundColorSpan(0xFFFFFFFF.toInt()),
-                        0,
-                        length,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
-                }
+                val vanTitle = SpannableString("VAN")
+                vanTitle.setSpan(
+                    ForegroundColorSpan(0xFF81D4FA.toInt()),
+                    0,
+                    vanTitle.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
 
-                val vanTitle = SpannableString("VAN").apply {
-                    setSpan(
-                        ForegroundColorSpan(0xFFFFFFFF.toInt()),
-                        0,
-                        length,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
-                }
+                val myCarTitle = SpannableString("MY_CAR")
+                myCarTitle.setSpan(
+                    ForegroundColorSpan(0xFFA5D6A7.toInt()),
+                    0,
+                    myCarTitle.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
 
-                val myCarTitle = SpannableString("MY_CAR").apply {
-                    setSpan(
-                        ForegroundColorSpan(0xFFFFD54A.toInt()),
-                        0,
-                        length,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
-                }
-
-                val clearTitle = SpannableString("CLEAR CATEGORY").apply {
-                    setSpan(
-                        ForegroundColorSpan(0xFFFF8A8A.toInt()),
-                        0,
-                        length,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
-                }
+                val clearTitle = SpannableString("CLEAR")
+                clearTitle.setSpan(
+                    ForegroundColorSpan(0xFFE0E0E0.toInt()),
+                    0,
+                    clearTitle.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
 
                 popup.menu.add(busTitle)
                 popup.menu.add(vanTitle)
@@ -174,14 +164,11 @@ class DriverRegistryAdapter(
                 popup.menu.add(clearTitle)
 
                 popup.setOnMenuItemClickListener { item ->
-
-                    val title = item.title.toString()
-
-                    when {
-                        title.startsWith("BUS") -> onCategoryAction(num, CategoryAction.BUS)
-                        title == "VAN" -> onCategoryAction(num, CategoryAction.VAN)
-                        title == "MY_CAR" -> onCategoryAction(num, CategoryAction.MY_CAR)
-                        title == "CLEAR CATEGORY" -> onCategoryAction(num, CategoryAction.CLEAR)
+                    when (item.title.toString()) {
+                        "BUS" -> onCategoryAction(num, CategoryAction.BUS)
+                        "VAN" -> onCategoryAction(num, CategoryAction.VAN)
+                        "MY_CAR" -> onCategoryAction(num, CategoryAction.MY_CAR)
+                        "CLEAR" -> onCategoryAction(num, CategoryAction.CLEAR)
                     }
 
                     true

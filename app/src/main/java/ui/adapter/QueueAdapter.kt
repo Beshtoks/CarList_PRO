@@ -1,4 +1,5 @@
-package com.carlist.pro.ui
+package com.carlist.pro.ui.adapter
+
 
 import android.view.LayoutInflater
 import android.view.View

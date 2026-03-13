@@ -42,11 +42,14 @@ import com.carlist.pro.domain.QueueManager
 import com.carlist.pro.domain.Status
 import com.carlist.pro.domain.sync.SyncState
 import com.carlist.pro.sync.SyncForegroundService
+import com.carlist.pro.ui.adapter.QueueAdapter
+import com.carlist.pro.ui.adapter.QueueTouchHelperCallback
 import com.carlist.pro.ui.controller.InputTechController
 import com.carlist.pro.ui.controller.InputUiController
 import com.carlist.pro.ui.controller.QueueClipboardHelper
 import com.carlist.pro.ui.controller.SyncUiController
 import com.carlist.pro.ui.controller.VoiceSessionController
+import com.carlist.pro.ui.dialog.DriverRegistryDialogFragment
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class MainActivity : AppCompatActivity() {

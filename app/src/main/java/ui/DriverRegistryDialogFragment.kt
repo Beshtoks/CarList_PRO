@@ -1,4 +1,4 @@
-package com.carlist.pro.ui
+package com.carlist.pro.ui.dialog
 
 import android.app.Dialog
 import android.content.DialogInterface
@@ -14,6 +14,9 @@ import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.DialogFragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.carlist.pro.databinding.DialogDriverRegistryBinding
+import com.carlist.pro.ui.MainActivity
+import com.carlist.pro.ui.MainViewModel
+import com.carlist.pro.ui.adapter.DriverRegistryAdapter
 import kotlin.math.roundToInt
 
 class DriverRegistryDialogFragment : DialogFragment() {

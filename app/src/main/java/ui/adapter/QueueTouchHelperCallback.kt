@@ -1,4 +1,5 @@
-package com.carlist.pro.ui
+package com.carlist.pro.ui.adapter
+
 
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
