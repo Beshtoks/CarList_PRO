@@ -21,6 +21,7 @@ import com.carlist.pro.ui.MainActivity
 class SyncForegroundService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
+
     private lateinit var networkMonitor: NetworkMonitor
     private lateinit var syncRepository: FirebaseSyncRepository
     private lateinit var notificationManager: NotificationManager
@@ -75,7 +76,8 @@ class SyncForegroundService : Service() {
     private val vibrationLoopRunnable = object : Runnable {
         override fun run() {
             if (destroyed || !currentlyOffline || alertAcknowledged) return
-            vibratePulse()
+
+            vibrateNetworkPulse()
             handler.postDelayed(this, VIBRATION_CYCLE_MS)
         }
     }
@@ -96,6 +98,7 @@ class SyncForegroundService : Service() {
         when (intent?.action) {
             ACTION_SILENCE_ALERT -> {
                 alertAcknowledged = true
+                handler.removeCallbacks(vibrationLoopRunnable)
                 stopVibration()
                 notificationManager.cancel(ALERT_NOTIFICATION_ID)
                 updateForegroundNotification()
@@ -176,8 +179,14 @@ class SyncForegroundService : Service() {
             "Monitoring connection"
         }
 
+        val iconRes = if (offline) {
+            android.R.drawable.stat_notify_error
+        } else {
+            android.R.drawable.stat_notify_sync
+        }
+
         return NotificationCompat.Builder(this, FOREGROUND_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setSmallIcon(iconRes)
             .setContentTitle("CarList PRO")
             .setContentText(text)
             .setOngoing(true)
@@ -216,6 +225,7 @@ class SyncForegroundService : Service() {
                 NotificationCompat.BigTextStyle()
                     .bigText("No network connection")
             )
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(false)
             .setOngoing(false)
             .setOnlyAlertOnce(true)
@@ -237,7 +247,7 @@ class SyncForegroundService : Service() {
         handler.post(vibrationLoopRunnable)
     }
 
-    private fun vibratePulse() {
+    private fun vibrateNetworkPulse() {
         val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             getSystemService(Vibrator::class.java)
         } else {
@@ -245,16 +255,21 @@ class SyncForegroundService : Service() {
             getSystemService(VIBRATOR_SERVICE) as? Vibrator
         } ?: return
 
+        val pattern = longArrayOf(
+            0L,
+            110L, 70L,
+            110L, 70L,
+            110L, 70L,
+            110L, 70L,
+            110L, 70L,
+            110L
+        )
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(
-                VibrationEffect.createOneShot(
-                    VIBRATION_PULSE_MS,
-                    VibrationEffect.DEFAULT_AMPLITUDE
-                )
-            )
+            vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
         } else {
             @Suppress("DEPRECATION")
-            vibrator.vibrate(VIBRATION_PULSE_MS)
+            vibrator.vibrate(pattern, -1)
         }
     }
 
@@ -310,7 +325,6 @@ class SyncForegroundService : Service() {
         private const val MONITOR_INTERVAL_MS = 1_000L
         private const val PING_INTERVAL_MS = 3_000L
 
-        private const val VIBRATION_PULSE_MS = 3_000L
-        private const val VIBRATION_CYCLE_MS = 4_000L
+        private const val VIBRATION_CYCLE_MS = 3_000L
     }
 }

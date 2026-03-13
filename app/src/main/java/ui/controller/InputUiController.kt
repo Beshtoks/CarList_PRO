@@ -69,7 +69,7 @@ class InputUiController {
         } else {
             inputHint.visibility = View.VISIBLE
             numberInput.isCursorVisible = false
-            inputHint.text = "Nr / 🛠"
+            inputHint.text = "NR"
         }
     }
 }

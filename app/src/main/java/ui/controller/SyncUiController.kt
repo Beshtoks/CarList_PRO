@@ -2,20 +2,18 @@ package com.carlist.pro.ui.controller
 
 import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import android.os.VibrationEffect
-import android.os.Vibrator
 import android.util.TypedValue
 import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog as AppCompatAlertDialog
+import androidx.core.content.ContextCompat
 import com.carlist.pro.domain.sync.SyncOffer
+import com.carlist.pro.sync.SyncForegroundService
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class SyncUiController(
@@ -25,49 +23,21 @@ class SyncUiController(
     private val onNetworkAlertAcknowledged: () -> Unit
 ) {
 
-    private val handler = Handler(Looper.getMainLooper())
-
     private var syncOfferDialog: AppCompatAlertDialog? = null
     private var syncOfferHandled = false
     private var currentSyncOffer: SyncOffer? = null
-    private var syncOfferSecondsLeft = 0
 
     private var networkAlertDialog: AlertDialog? = null
     private var networkAlertAcknowledged = false
 
-    private val syncOfferCountdownRunnable = object : Runnable {
-        override fun run() {
-            val offer = currentSyncOffer ?: return
-
-            if (syncOfferSecondsLeft <= 0) {
-                dismissSyncOfferDialog(accepted = false)
-                return
-            }
-
-            updateSyncOfferDialogText(offer, syncOfferSecondsLeft)
-            syncOfferSecondsLeft -= 1
-            handler.postDelayed(this, 1000L)
-        }
-    }
-
-    private val networkVibrationRunnable = object : Runnable {
-        override fun run() {
-            if (networkAlertDialog?.isShowing != true || networkAlertAcknowledged) return
-
-            vibrateNetworkPulse()
-            handler.postDelayed(this, 4_000L)
-        }
-    }
-
     fun showSyncOfferDialog(offer: SyncOffer) {
         currentSyncOffer = offer
         syncOfferHandled = false
-        syncOfferSecondsLeft = offer.secondsRemaining.coerceAtLeast(0)
 
         if (syncOfferDialog == null) {
             syncOfferDialog = MaterialAlertDialogBuilder(context)
                 .setTitle("SYNC OFFER")
-                .setMessage("")
+                .setMessage(buildSyncOfferText(offer))
                 .setCancelable(false)
                 .setPositiveButton("YES") { _, _ ->
                     dismissSyncOfferDialog(accepted = true)
@@ -80,25 +50,20 @@ class SyncUiController(
             syncOfferDialog?.setOnDismissListener {
                 if (!syncOfferHandled) {
                     syncOfferHandled = true
-                    handler.removeCallbacks(syncOfferCountdownRunnable)
                     currentSyncOffer = null
                     onDeclineSyncOffer()
                 }
             }
+        } else {
+            syncOfferDialog?.setMessage(buildSyncOfferText(offer))
         }
-
-        updateSyncOfferDialogText(offer, syncOfferSecondsLeft)
 
         if (syncOfferDialog?.isShowing != true) {
             syncOfferDialog?.show()
         }
-
-        handler.removeCallbacks(syncOfferCountdownRunnable)
-        handler.post(syncOfferCountdownRunnable)
     }
 
     fun dismissSyncOfferDialogOnly() {
-        handler.removeCallbacks(syncOfferCountdownRunnable)
         currentSyncOffer = null
         syncOfferHandled = true
         syncOfferDialog?.dismiss()
@@ -176,29 +141,21 @@ class SyncUiController(
 
         networkAlertDialog = dialog
         dialog.show()
-
-        handler.removeCallbacks(networkVibrationRunnable)
-        handler.post(networkVibrationRunnable)
     }
 
     fun dismissNetworkAlertDialogOnly() {
-        handler.removeCallbacks(networkVibrationRunnable)
-        stopVibration()
         networkAlertDialog?.dismiss()
         networkAlertDialog = null
     }
 
     fun release() {
-        handler.removeCallbacks(syncOfferCountdownRunnable)
-        handler.removeCallbacks(networkVibrationRunnable)
-        stopVibration()
         syncOfferDialog?.dismiss()
         syncOfferDialog = null
         networkAlertDialog?.dismiss()
         networkAlertDialog = null
     }
 
-    private fun updateSyncOfferDialogText(offer: SyncOffer, secondsLeft: Int) {
+    private fun buildSyncOfferText(offer: SyncOffer): String {
         val authorText = offer.snapshot.authorNumber?.let { "№$it" } ?: "неизвестно"
         val updatedAtMs = offer.snapshot.updatedAtMs
         val minutesAgo = if (updatedAtMs > 0L) {
@@ -207,24 +164,16 @@ class SyncUiController(
             0
         }
 
-        val dialog = syncOfferDialog ?: return
-
-        dialog.setTitle("SYNC OFFER")
-        dialog.setMessage(
-            "Последний список выложил $authorText.\n" +
-                    "Выложен $minutesAgo мин. назад.\n" +
-                    "Принять список?\n" +
-                    "Осталось: ${secondsLeft.coerceAtLeast(0)} сек."
-        )
+        return "Последний список выложил $authorText.\n" +
+                "Выложен $minutesAgo мин. назад.\n" +
+                "Принять список?\n" +
+                "Осталось: ${offer.secondsRemaining.coerceAtLeast(0)} сек."
     }
 
     private fun dismissSyncOfferDialog(accepted: Boolean) {
         if (syncOfferHandled) return
 
         syncOfferHandled = true
-        handler.removeCallbacks(syncOfferCountdownRunnable)
-
-        val dialog = syncOfferDialog
         currentSyncOffer = null
 
         if (accepted) {
@@ -233,7 +182,7 @@ class SyncUiController(
             onDeclineSyncOffer()
         }
 
-        dialog?.dismiss()
+        syncOfferDialog?.dismiss()
         syncOfferDialog = null
     }
 
@@ -241,41 +190,15 @@ class SyncUiController(
         if (networkAlertAcknowledged) return
 
         networkAlertAcknowledged = true
-        handler.removeCallbacks(networkVibrationRunnable)
-        stopVibration()
+        silenceForegroundServiceAlert()
         onNetworkAlertAcknowledged()
         dismissNetworkAlertDialogOnly()
     }
 
-    private fun vibrateNetworkPulse() {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            context.getSystemService(Vibrator::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        } ?: return
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(
-                VibrationEffect.createOneShot(
-                    3_000L,
-                    VibrationEffect.DEFAULT_AMPLITUDE
-                )
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(3_000L)
+    private fun silenceForegroundServiceAlert() {
+        val intent = Intent(context, SyncForegroundService::class.java).apply {
+            action = SyncForegroundService.ACTION_SILENCE_ALERT
         }
-    }
-
-    private fun stopVibration() {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            context.getSystemService(Vibrator::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        } ?: return
-
-        vibrator.cancel()
+        ContextCompat.startForegroundService(context, intent)
     }
 }

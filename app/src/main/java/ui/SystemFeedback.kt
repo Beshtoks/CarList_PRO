@@ -9,7 +9,9 @@ import android.os.Vibrator
 
 class SystemFeedback(context: Context) {
 
-    private val tone = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90)
+    // Было 90 — делаем примерно вдвое тише
+    private val tone = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 45)
+
     private val vibrator = context.getSystemService(Vibrator::class.java)
 
     private var soundEnabled = true

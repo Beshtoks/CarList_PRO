@@ -26,37 +26,69 @@
             android:layout_height="match_parent"
             android:background="@drawable/bg_queue_card_standard_3d" />
 
+        <View
+            android:id="@+id/leftPanel"
+            android:layout_width="74dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="start|center_vertical"
+            android:layout_marginStart="1dp"
+            android:layout_marginTop="1dp"
+            android:layout_marginBottom="1dp" />
+
+        <View
+            android:id="@+id/diagonalDivider"
+            android:layout_width="2dp"
+            android:layout_height="38dp"
+            android:layout_gravity="start|center_vertical"
+            android:layout_marginStart="72dp"
+            android:rotation="-29" />
+
         <TextView
-            android:id="@+id/categoryLetterText"
-            android:layout_width="44dp"
+            android:id="@+id/positionText"
+            android:layout_width="60dp"
             android:layout_height="match_parent"
             android:layout_gravity="start|center_vertical"
             android:layout_marginStart="6dp"
             android:gravity="center"
-            android:text=""
-            android:textColor="#3B2A18"
-            android:textSize="26sp"
-            android:textStyle="bold"
-            android:visibility="gone" />
+            android:text="1"
+            android:textColor="#FFFCB4"
+            android:textSize="22sp"
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/numberText"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:layout_marginStart="74dp"
+            android:layout_marginEnd="50dp"
             android:gravity="center"
-            android:text="12"
-            android:textColor="#0B3D0B"
-            android:textSize="28sp"
+            android:text="245"
+            android:textColor="#FFFFFFFF"
+            android:textSize="27sp"
             android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/categoryLetterText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end|center_vertical"
+            android:layout_marginEnd="12dp"
+            android:gravity="center"
+            android:text=""
+            android:textColor="#FFD8D8D8"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
 
         <TextView
             android:id="@+id/statusSmallText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="end|center_vertical"
-            android:layout_marginEnd="10dp"
+            android:layout_marginEnd="12dp"
+            android:gravity="center"
             android:text=""
-            android:textColor="#FFE3FA"
+            android:textColor="#FFFFE8FA"
             android:textSize="11sp"
             android:textStyle="bold"
             android:visibility="gone" />

@@ -233,12 +233,13 @@ class SyncCoordinator(
     }
 
     fun onLocalSnapshotChanged(snapshot: List<QueueItem>) {
-        if (syncEnabled) {
-            syncRepository.pushSnapshot(
-                queue = snapshot,
-                authorNumber = registryStore.getMyCar()
-            )
-        }
+        if (!syncEnabled) return
+        if (snapshot.isEmpty()) return
+
+        syncRepository.pushSnapshot(
+            queue = snapshot,
+            authorNumber = registryStore.getMyCar()
+        )
     }
 
     fun isQueueEditingBlocked(): Boolean {
