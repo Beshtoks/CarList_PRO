@@ -5,12 +5,13 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
-import android.text.SpannableString
+import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
@@ -18,16 +19,17 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.widget.PopupMenu
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -37,6 +39,7 @@ import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.carlist.pro.R
 import com.carlist.pro.databinding.ActivityMainBinding
+import com.carlist.pro.databinding.PopupStatusMenuBinding
 import com.carlist.pro.domain.QueueItem
 import com.carlist.pro.domain.QueueManager
 import com.carlist.pro.domain.Status
@@ -68,12 +71,9 @@ class MainActivity : AppCompatActivity() {
     private var imeVisibleNow = false
     private var autoCopyEnabled = false
     private var isDragging = false
-
     private var isTechMenuOpen = false
-
     private var lastQueueSize = 0
     private var pendingScrollToBottom = false
-
     private var lastAutoCopiedText = ""
     private var suppressNextQueueAutoScroll = false
     private var backgroundServiceStarted = false
@@ -416,47 +416,163 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showStatusMenu(anchor: View, item: QueueItem) {
+        val popupBinding = PopupStatusMenuBinding.inflate(layoutInflater)
 
-        val popup = PopupMenu(this, anchor)
+        popupBinding.actionStandard.text = "NO STATUS"
+        popupBinding.actionService.text = "SERVICE"
+        popupBinding.actionOffice.text = "OFFICE"
+        popupBinding.actionJurnieks.text = "JURNIEKS"
 
-        popup.menu.add(coloredTitle("STANDARD   ${item.number}", 0xFFE6D29C.toInt()))
-        popup.menu.add(coloredTitle("SERVICE", 0xFFFF91E7.toInt()))
-        popup.menu.add(coloredTitle("OFFICE", 0xFFFF91E7.toInt()))
-        popup.menu.add(coloredTitle("JURNIEKS", 0xFF0FDFFF.toInt()))
-
-        popup.setOnMenuItemClickListener { menuItem ->
-            suppressNextQueueAutoScroll = true
-
-            when {
-                menuItem.title.toString().startsWith("STANDARD") ->
-                    viewModel.setStatus(item.number, Status.NONE)
-
-                menuItem.title.toString() == "SERVICE" ->
-                    viewModel.setStatus(item.number, Status.SERVICE)
-
-                menuItem.title.toString() == "OFFICE" ->
-                    viewModel.setStatus(item.number, Status.OFFICE)
-
-                menuItem.title.toString() == "JURNIEKS" ->
-                    viewModel.setStatus(item.number, Status.JURNIEKS)
+        when (item.status) {
+            Status.NONE -> {
+                popupBinding.actionStandard.text = buildStatusLabel(
+                    base = "NO STATUS",
+                    number = item.number,
+                    baseColor = 0xFFFFD0D0.toInt()
+                )
             }
 
-            requestAutoCopyIfNeeded()
-            true
+            Status.SERVICE -> {
+                popupBinding.actionService.text = buildStatusLabel(
+                    base = "SERVICE",
+                    number = item.number,
+                    baseColor = 0xFFFF67D8.toInt()
+                )
+            }
+
+            Status.OFFICE -> {
+                popupBinding.actionOffice.text = buildStatusLabel(
+                    base = "OFFICE",
+                    number = item.number,
+                    baseColor = 0xFFFF67D8.toInt()
+                )
+            }
+
+            Status.JURNIEKS -> {
+                popupBinding.actionJurnieks.text = buildStatusLabel(
+                    base = "JURNIEKS",
+                    number = item.number,
+                    baseColor = 0xFF4DB7FF.toInt()
+                )
+            }
         }
 
-        popup.show()
+        val popup = PopupWindow(
+            popupBinding.root,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            true
+        )
+
+        popup.isOutsideTouchable = true
+        popup.isFocusable = true
+        popup.elevation = 16f
+        popup.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        popup.isClippingEnabled = true
+
+        popupBinding.actionStandard.setOnClickListener {
+            suppressNextQueueAutoScroll = true
+            viewModel.setStatus(item.number, Status.NONE)
+            requestAutoCopyIfNeeded()
+            popup.dismiss()
+        }
+
+        popupBinding.actionService.setOnClickListener {
+            suppressNextQueueAutoScroll = true
+            viewModel.setStatus(item.number, Status.SERVICE)
+            requestAutoCopyIfNeeded()
+            popup.dismiss()
+        }
+
+        popupBinding.actionOffice.setOnClickListener {
+            suppressNextQueueAutoScroll = true
+            viewModel.setStatus(item.number, Status.OFFICE)
+            requestAutoCopyIfNeeded()
+            popup.dismiss()
+        }
+
+        popupBinding.actionJurnieks.setOnClickListener {
+            suppressNextQueueAutoScroll = true
+            viewModel.setStatus(item.number, Status.JURNIEKS)
+            requestAutoCopyIfNeeded()
+            popup.dismiss()
+        }
+
+        popup.contentView.measure(
+            View.MeasureSpec.makeMeasureSpec(resources.displayMetrics.widthPixels, View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec(resources.displayMetrics.heightPixels, View.MeasureSpec.AT_MOST)
+        )
+
+        val popupWidth = popup.contentView.measuredWidth
+        val popupHeight = popup.contentView.measuredHeight
+
+        val anchorLocation = IntArray(2)
+        anchor.getLocationOnScreen(anchorLocation)
+
+        val anchorX = anchorLocation[0]
+        val anchorY = anchorLocation[1]
+        val anchorWidth = anchor.width
+        val anchorHeight = anchor.height
+
+        val visibleFrame = Rect()
+        window.decorView.getWindowVisibleDisplayFrame(visibleFrame)
+
+        val spaceBelow = visibleFrame.bottom - (anchorY + anchorHeight)
+        val spaceAbove = anchorY - visibleFrame.top
+
+        val margin = dpToPx(8)
+        var x = anchorX + anchorWidth - popupWidth
+        var y = if (spaceBelow >= popupHeight + margin || spaceBelow >= spaceAbove) {
+            anchorY + anchorHeight + margin
+        } else {
+            anchorY - popupHeight - margin
+        }
+
+        if (x < visibleFrame.left + margin) {
+            x = visibleFrame.left + margin
+        }
+
+        if (x + popupWidth > visibleFrame.right - margin) {
+            x = visibleFrame.right - popupWidth - margin
+        }
+
+        if (y < visibleFrame.top + margin) {
+            y = visibleFrame.top + margin
+        }
+
+        if (y + popupHeight > visibleFrame.bottom - margin) {
+            y = visibleFrame.bottom - popupHeight - margin
+        }
+
+        popup.showAtLocation(window.decorView, Gravity.TOP or Gravity.START, x, y)
     }
 
-    private fun coloredTitle(text: String, color: Int): SpannableString {
-        return SpannableString(text).apply {
+    private fun buildStatusLabel(base: String, number: Int, baseColor: Int): CharSequence {
+        val text = "$base $number"
+        val start = base.length + 1
+        val end = text.length
+        val numberColor = lightenColor(baseColor, 0.20f)
+
+        return SpannableStringBuilder(text).apply {
             setSpan(
-                ForegroundColorSpan(color),
-                0,
-                length,
+                ForegroundColorSpan(numberColor),
+                start,
+                end,
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
             )
         }
+    }
+
+    private fun lightenColor(color: Int, amount: Float): Int {
+        val r = Color.red(color)
+        val g = Color.green(color)
+        val b = Color.blue(color)
+
+        val newR = (r + ((255 - r) * amount)).toInt().coerceIn(0, 255)
+        val newG = (g + ((255 - g) * amount)).toInt().coerceIn(0, 255)
+        val newB = (b + ((255 - b) * amount)).toInt().coerceIn(0, 255)
+
+        return Color.argb(Color.alpha(color), newR, newG, newB)
     }
 
     private fun applyInputVisualState(imeVisible: Boolean) {
@@ -768,6 +884,10 @@ class MainActivity : AppCompatActivity() {
                 // Без звука
             }
         }
+    }
+
+    private fun dpToPx(dp: Int): Int {
+        return (dp * resources.displayMetrics.density).toInt()
     }
 
     override fun onDestroy() {

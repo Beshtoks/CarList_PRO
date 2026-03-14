@@ -3,59 +3,49 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="58dp"
-    android:orientation="horizontal"
-    android:paddingStart="8dp"
-    android:paddingEnd="8dp"
+    android:orientation="vertical"
+    android:background="@drawable/bg_registry_row_neon"
+    android:paddingStart="10dp"
+    android:paddingEnd="10dp"
     android:paddingTop="2dp"
     android:paddingBottom="2dp">
 
     <LinearLayout
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
         android:layout_weight="1"
-        android:orientation="vertical">
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
 
         <EditText
             android:id="@+id/etNumber"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:background="@android:color/transparent"
+            android:background="@null"
             android:inputType="number"
-            android:maxLength="2"
+            android:textColor="#D6F6FF"
             android:textSize="22sp"
+            android:textColorHint="#6F8FB8"
+            android:hint="" />
+
+        <TextView
+            android:id="@+id/tvLetters"
+            android:layout_width="110dp"
+            android:layout_height="36dp"
+            android:gravity="center"
+            android:text="-"
             android:textStyle="bold"
-            android:textColor="#222222"
-            android:textCursorDrawable="@null"
-            android:cursorVisible="true"
-            android:focusable="true"
-            android:focusableInTouchMode="true"
-            android:padding="0dp"
-            android:gravity="center_vertical"
-            android:importantForAutofill="no"
-            android:hint="--"
-            android:textColorHint="#886F6F6F" />
-
-        <View
-            android:id="@+id/underline"
-            android:layout_width="match_parent"
-            android:layout_height="2dp"
-            android:background="#00000000" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginTop="3dp"
-            android:background="#D9D19A" />
+            android:textSize="14sp"
+            android:textColor="#BFEFFF"
+            android:background="@drawable/bg_registry_category_blue" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/tvLetters"
-        android:layout_width="72dp"
-        android:layout_height="match_parent"
-        android:gravity="center"
-        android:text="-"
-        android:textSize="20sp"
-        android:textStyle="bold"
-        android:textColor="#3E3E3E" />
+    <View
+        android:id="@+id/underline"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="2dp"
+        android:background="#2A6EDB" />
+
 </LinearLayout>

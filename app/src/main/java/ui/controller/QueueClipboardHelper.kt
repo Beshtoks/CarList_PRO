@@ -77,10 +77,8 @@ class QueueClipboardHelper(
             TransportType.NONE -> {}
         }
 
-        if (isMyCar) {
-            if (sb.isNotEmpty()) sb.append("+")
-            sb.append("MY")
-        }
+        // MY_CAR intentionally does not appear in copied queue text.
+        // Number stays, but "(MY)" must never be added.
 
         return sb.toString()
     }

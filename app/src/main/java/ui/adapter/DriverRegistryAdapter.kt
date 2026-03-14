@@ -1,16 +1,14 @@
 package com.carlist.pro.ui.adapter
 
 import android.text.InputType
-import android.text.SpannableString
-import android.text.Spanned
-import android.text.style.ForegroundColorSpan
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
-import androidx.appcompat.widget.PopupMenu
+import android.widget.PopupWindow
 import androidx.recyclerview.widget.RecyclerView
 import com.carlist.pro.databinding.ItemRegistryRowBinding
+import com.carlist.pro.databinding.PopupRegistryCategoryMenuBinding
 import com.carlist.pro.domain.TransportInfo
 
 class DriverRegistryAdapter(
@@ -122,61 +120,47 @@ class DriverRegistryAdapter(
             }
 
             binding.tvLetters.setOnClickListener {
+                onRowActivated(position)
+                focusField()
+
                 val num = row.number ?: return@setOnClickListener
 
-                val popup = PopupMenu(binding.root.context, binding.tvLetters)
-
-                val busTitle = SpannableString("BUS")
-                busTitle.setSpan(
-                    ForegroundColorSpan(0xFFFFD54F.toInt()),
-                    0,
-                    busTitle.length,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                val popupBinding = PopupRegistryCategoryMenuBinding.inflate(
+                    LayoutInflater.from(binding.root.context)
                 )
 
-                val vanTitle = SpannableString("VAN")
-                vanTitle.setSpan(
-                    ForegroundColorSpan(0xFF81D4FA.toInt()),
-                    0,
-                    vanTitle.length,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-
-                val myCarTitle = SpannableString("MY_CAR")
-                myCarTitle.setSpan(
-                    ForegroundColorSpan(0xFFA5D6A7.toInt()),
-                    0,
-                    myCarTitle.length,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-
-                val clearTitle = SpannableString("CLEAR")
-                clearTitle.setSpan(
-                    ForegroundColorSpan(0xFFE0E0E0.toInt()),
-                    0,
-                    clearTitle.length,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-
-                popup.menu.add(busTitle)
-                popup.menu.add(vanTitle)
-                popup.menu.add(myCarTitle)
-                popup.menu.add(clearTitle)
-
-                popup.setOnMenuItemClickListener { item ->
-                    when (item.title.toString()) {
-                        "BUS" -> onCategoryAction(num, CategoryAction.BUS)
-                        "VAN" -> onCategoryAction(num, CategoryAction.VAN)
-                        "MY_CAR" -> onCategoryAction(num, CategoryAction.MY_CAR)
-                        "CLEAR" -> onCategoryAction(num, CategoryAction.CLEAR)
-                    }
-
+                val popup = PopupWindow(
+                    popupBinding.root,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
                     true
+                )
+
+                popup.isOutsideTouchable = true
+                popup.isFocusable = true
+                popup.elevation = 16f
+
+                popupBinding.actionMyCar.setOnClickListener {
+                    onCategoryAction(num, CategoryAction.MY_CAR)
+                    popup.dismiss()
                 }
 
-                popup.show()
+                popupBinding.actionVan.setOnClickListener {
+                    onCategoryAction(num, CategoryAction.VAN)
+                    popup.dismiss()
+                }
 
-                true
+                popupBinding.actionBus.setOnClickListener {
+                    onCategoryAction(num, CategoryAction.BUS)
+                    popup.dismiss()
+                }
+
+                popupBinding.actionClear.setOnClickListener {
+                    onCategoryAction(num, CategoryAction.CLEAR)
+                    popup.dismiss()
+                }
+
+                popup.showAsDropDown(binding.tvLetters)
             }
         }
 
