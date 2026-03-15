@@ -1,77 +1,47 @@
 package com.carlist.pro.ui
 
 import android.content.Context
-import android.media.AudioManager
-import android.media.ToneGenerator
-import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.os.VibratorManager
+import android.os.Build
 
 class SystemFeedback(context: Context) {
 
-    // Было 90 — делаем примерно вдвое тише
-    private val tone = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 45)
-
-    private val vibrator = context.getSystemService(Vibrator::class.java)
-
-    private var soundEnabled = true
-
-    fun setSoundEnabled(enabled: Boolean) {
-        soundEnabled = enabled
-    }
-
-    fun ok() {
-
-        if (soundEnabled) {
-            tone.startTone(ToneGenerator.TONE_PROP_ACK, 120)
+    private val vibrator: Vibrator? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val manager =
+                context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            manager.defaultVibrator
+        } else {
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
 
-        vibrateSafe(30, strong = false)
+    fun ok() {
+        vibrate(20)
     }
 
     fun error() {
-
-        if (soundEnabled) {
-            tone.startTone(ToneGenerator.TONE_PROP_NACK, 180)
-        }
-
-        vibrateSafe(120, strong = true)
+        vibrate(80)
     }
 
     fun warning() {
+        vibrate(40)
+    }
 
-        if (soundEnabled) {
-            tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 220)
+    private fun vibrate(duration: Long) {
+        vibrator ?: return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(
+                VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE)
+            )
+        } else {
+            vibrator.vibrate(duration)
         }
-
-        vibrateSafe(160, strong = true)
     }
 
     fun release() {
-        tone.release()
-    }
-
-    private fun vibrateSafe(ms: Long, strong: Boolean) {
-
-        val v = vibrator ?: return
-        if (!v.hasVibrator()) return
-
-        try {
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
-                val amp = if (strong) 220 else 120
-                v.vibrate(VibrationEffect.createOneShot(ms, amp))
-
-            } else {
-
-                @Suppress("DEPRECATION")
-                v.vibrate(ms)
-
-            }
-
-        } catch (_: SecurityException) {
-        } catch (_: Throwable) {
-        }
+        // ничего освобождать не нужно
     }
 }

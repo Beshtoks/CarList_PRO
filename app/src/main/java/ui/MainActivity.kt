@@ -8,12 +8,8 @@ import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
-import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
-import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
@@ -62,6 +58,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var adapter: QueueAdapter
     private lateinit var layoutManager: LinearLayoutManager
     private lateinit var feedback: SystemFeedback
+    private lateinit var uiSoundManager: UiSoundManager
     private lateinit var voiceSessionController: VoiceSessionController
     private lateinit var inputTechController: InputTechController
     private lateinit var inputUiController: InputUiController
@@ -71,9 +68,12 @@ class MainActivity : AppCompatActivity() {
     private var imeVisibleNow = false
     private var autoCopyEnabled = false
     private var isDragging = false
+
     private var isTechMenuOpen = false
+
     private var lastQueueSize = 0
     private var pendingScrollToBottom = false
+
     private var lastAutoCopiedText = ""
     private var suppressNextQueueAutoScroll = false
     private var backgroundServiceStarted = false
@@ -106,6 +106,7 @@ class MainActivity : AppCompatActivity() {
 
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
         feedback = SystemFeedback(this)
+        uiSoundManager = UiSoundManager(this)
 
         syncUiController = SyncUiController(
             context = this,
@@ -160,10 +161,10 @@ class MainActivity : AppCompatActivity() {
                 recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             },
             onSessionStarted = {
-                feedback.setSoundEnabled(false)
+                uiSoundManager.setSoundEnabled(false)
             },
             onSessionStopped = {
-                feedback.setSoundEnabled(true)
+                uiSoundManager.setSoundEnabled(true)
             },
             onNumberRecognized = { recognizedNumber ->
                 handleVoiceRecognizedNumber(recognizedNumber)
@@ -280,7 +281,8 @@ class MainActivity : AppCompatActivity() {
                     adapter.moveForDrag(from, to)
                 },
                 onSwipedRight = { position ->
-                    playDeleteSwipeSound()
+                    uiSoundManager.playDelete()
+                    feedback.ok()
                     viewModel.removeAt(position)
                     requestAutoCopyIfNeeded()
                 },
@@ -418,44 +420,7 @@ class MainActivity : AppCompatActivity() {
     private fun showStatusMenu(anchor: View, item: QueueItem) {
         val popupBinding = PopupStatusMenuBinding.inflate(layoutInflater)
 
-        popupBinding.actionStandard.text = "NO STATUS"
-        popupBinding.actionService.text = "SERVICE"
-        popupBinding.actionOffice.text = "OFFICE"
-        popupBinding.actionJurnieks.text = "JURNIEKS"
-
-        when (item.status) {
-            Status.NONE -> {
-                popupBinding.actionStandard.text = buildStatusLabel(
-                    base = "NO STATUS",
-                    number = item.number,
-                    baseColor = 0xFFFFD0D0.toInt()
-                )
-            }
-
-            Status.SERVICE -> {
-                popupBinding.actionService.text = buildStatusLabel(
-                    base = "SERVICE",
-                    number = item.number,
-                    baseColor = 0xFFFF67D8.toInt()
-                )
-            }
-
-            Status.OFFICE -> {
-                popupBinding.actionOffice.text = buildStatusLabel(
-                    base = "OFFICE",
-                    number = item.number,
-                    baseColor = 0xFFFF67D8.toInt()
-                )
-            }
-
-            Status.JURNIEKS -> {
-                popupBinding.actionJurnieks.text = buildStatusLabel(
-                    base = "JURNIEKS",
-                    number = item.number,
-                    baseColor = 0xFF4DB7FF.toInt()
-                )
-            }
-        }
+        popupBinding.actionStandard.text = "STANDARD ${item.number}"
 
         val popup = PopupWindow(
             popupBinding.root,
@@ -498,6 +463,7 @@ class MainActivity : AppCompatActivity() {
             popup.dismiss()
         }
 
+
         popup.contentView.measure(
             View.MeasureSpec.makeMeasureSpec(resources.displayMetrics.widthPixels, View.MeasureSpec.AT_MOST),
             View.MeasureSpec.makeMeasureSpec(resources.displayMetrics.heightPixels, View.MeasureSpec.AT_MOST)
@@ -531,7 +497,6 @@ class MainActivity : AppCompatActivity() {
         if (x < visibleFrame.left + margin) {
             x = visibleFrame.left + margin
         }
-
         if (x + popupWidth > visibleFrame.right - margin) {
             x = visibleFrame.right - popupWidth - margin
         }
@@ -539,40 +504,11 @@ class MainActivity : AppCompatActivity() {
         if (y < visibleFrame.top + margin) {
             y = visibleFrame.top + margin
         }
-
         if (y + popupHeight > visibleFrame.bottom - margin) {
             y = visibleFrame.bottom - popupHeight - margin
         }
 
         popup.showAtLocation(window.decorView, Gravity.TOP or Gravity.START, x, y)
-    }
-
-    private fun buildStatusLabel(base: String, number: Int, baseColor: Int): CharSequence {
-        val text = "$base $number"
-        val start = base.length + 1
-        val end = text.length
-        val numberColor = lightenColor(baseColor, 0.20f)
-
-        return SpannableStringBuilder(text).apply {
-            setSpan(
-                ForegroundColorSpan(numberColor),
-                start,
-                end,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-        }
-    }
-
-    private fun lightenColor(color: Int, amount: Float): Int {
-        val r = Color.red(color)
-        val g = Color.green(color)
-        val b = Color.blue(color)
-
-        val newR = (r + ((255 - r) * amount)).toInt().coerceIn(0, 255)
-        val newG = (g + ((255 - g) * amount)).toInt().coerceIn(0, 255)
-        val newB = (b + ((255 - b) * amount)).toInt().coerceIn(0, 255)
-
-        return Color.argb(Color.alpha(color), newR, newG, newB)
     }
 
     private fun applyInputVisualState(imeVisible: Boolean) {
@@ -592,12 +528,14 @@ class MainActivity : AppCompatActivity() {
         binding.btnAutocopy.setOnClickListener {
             val list = viewModel.queueItems.value.orEmpty()
             lastAutoCopiedText = queueClipboardHelper.copyQueueOnce(list)
+            uiSoundManager.playOk()
             feedback.ok()
         }
 
         binding.btnAutocopy.setOnLongClickListener {
             autoCopyEnabled = !autoCopyEnabled
             updateAutocopyButtonText()
+            uiSoundManager.playOk()
             feedback.ok()
             true
         }
@@ -613,7 +551,8 @@ class MainActivity : AppCompatActivity() {
                 .setPositiveButton("YES") { _, _ ->
                     viewModel.clear()
                     lastAutoCopiedText = ""
-                    feedback.ok()
+                    uiSoundManager.playWarning()
+                    feedback.warning()
                 }
                 .setNegativeButton("NO", null)
                 .show()
@@ -666,12 +605,14 @@ class MainActivity : AppCompatActivity() {
 
         when (result) {
             is QueueManager.AddResult.Added -> {
+                uiSoundManager.playOk()
                 feedback.ok()
                 binding.numberInput.setText("")
                 requestAutoCopyIfNeeded()
             }
 
             QueueManager.AddResult.DuplicateInQueue -> {
+                uiSoundManager.playError()
                 feedback.error()
                 binding.numberInput.setText("")
                 showInputProblemDialog("DUPLICATE NUMBER")
@@ -679,6 +620,7 @@ class MainActivity : AppCompatActivity() {
 
             QueueManager.AddResult.NotInRegistry,
             QueueManager.AddResult.InvalidNumber -> {
+                uiSoundManager.playError()
                 feedback.error()
                 binding.numberInput.setText("")
                 showInputProblemDialog("NOT IN REGISTRY")
@@ -691,12 +633,14 @@ class MainActivity : AppCompatActivity() {
 
         when (result) {
             is QueueManager.AddResult.Added -> {
+                uiSoundManager.playOk()
                 feedback.ok()
                 requestAutoCopyIfNeeded()
                 voiceSessionController.onNumberAccepted()
             }
 
             QueueManager.AddResult.DuplicateInQueue -> {
+                uiSoundManager.playError()
                 feedback.error()
                 showInputProblemDialog("DUPLICATE NUMBER")
                 voiceSessionController.onNumberRejected()
@@ -704,6 +648,7 @@ class MainActivity : AppCompatActivity() {
 
             QueueManager.AddResult.NotInRegistry,
             QueueManager.AddResult.InvalidNumber -> {
+                uiSoundManager.playError()
                 feedback.error()
                 showInputProblemDialog("NOT IN REGISTRY")
                 voiceSessionController.onNumberRejected()
@@ -873,19 +818,6 @@ class MainActivity : AppCompatActivity() {
         return rawX >= left && rawX <= right && rawY >= top && rawY <= bottom
     }
 
-    private fun playDeleteSwipeSound() {
-        val audioManager = getSystemService(AudioManager::class.java) ?: return
-        try {
-            audioManager.playSoundEffect(AudioManager.FX_FOCUS_NAVIGATION_RIGHT, 1.0f)
-        } catch (_: Throwable) {
-            try {
-                audioManager.playSoundEffect(AudioManager.FX_KEY_CLICK, 1.0f)
-            } catch (_: Throwable) {
-                // Без звука
-            }
-        }
-    }
-
     private fun dpToPx(dp: Int): Int {
         return (dp * resources.displayMetrics.density).toInt()
     }
@@ -894,6 +826,7 @@ class MainActivity : AppCompatActivity() {
         syncUiController.release()
         inputTechController.release()
         voiceSessionController.release()
+        uiSoundManager.release()
         super.onDestroy()
         feedback.release()
     }
