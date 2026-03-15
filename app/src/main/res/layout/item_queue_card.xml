@@ -76,7 +76,7 @@
             android:gravity="center"
             android:text=""
             android:textColor="#FFD8D8D8"
-            android:textSize="12sp"
+            android:textSize="24sp"
             android:textStyle="bold"
             android:visibility="gone" />
 

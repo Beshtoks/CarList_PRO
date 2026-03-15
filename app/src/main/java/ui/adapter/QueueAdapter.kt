@@ -70,39 +70,38 @@ class QueueAdapter(
             val visualState = resolveVisualState(item, info)
 
             binding.positionText.text = queuePosition.toString()
+            binding.positionText.setTextColor(0xFFDEB887.toInt())
             binding.numberText.text = item.number.toString()
 
             when (visualState) {
                 VisualState.STANDARD -> {
                     binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_standard_3d)
                     binding.leftPanel.background = createLeftPanelDrawable(
-                        startColor = 0xFF180B10.toInt(),
-                        endColor = 0xFF0F0910.toInt(),
+                        startColor = 0xFF1B0F00.toInt(),
+                        endColor = 0xFF090500.toInt(),
                         strokeColor = 0x00000000
                     )
-                    binding.diagonalDivider.setBackgroundColor(0x88322A35.toInt())
-                    binding.positionText.setTextColor(0xFFFF5B5B.toInt())
-                    binding.numberText.setTextColor(Color.WHITE)
-                    binding.categoryLetterText.setTextColor(0xFFFFD0D0.toInt())
-                    binding.statusSmallText.setTextColor(0xFFFFD0D0.toInt())
-                    binding.cardRoot.strokeWidth = dpToPx(1f)
-                    binding.cardRoot.strokeColor = 0xAA7B2C35.toInt()
+                    binding.diagonalDivider.setBackgroundColor(0x99E1C36A.toInt())
+                    binding.numberText.setTextColor(0xFF090500.toInt())
+                    binding.categoryLetterText.setTextColor(0xFF090500.toInt())
+                    binding.statusSmallText.setTextColor(0xFF090500.toInt())
+                    binding.cardRoot.strokeWidth = dpToPx(1.5f)
+                    binding.cardRoot.strokeColor = 0xFFD8AF45.toInt()
                 }
 
                 VisualState.MY_CAR -> {
                     binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_my_car_3d)
                     binding.leftPanel.background = createLeftPanelDrawable(
-                        startColor = 0xFF261706.toInt(),
-                        endColor = 0xFF181003.toInt(),
+                        startColor = 0xFF241400.toInt(),
+                        endColor = 0xFF0C0700.toInt(),
                         strokeColor = 0x00000000
                     )
-                    binding.diagonalDivider.setBackgroundColor(0x99FFD36A.toInt())
-                    binding.positionText.setTextColor(0xFFFFD87A.toInt())
-                    binding.numberText.setTextColor(0xFFFFE7A8.toInt())
-                    binding.categoryLetterText.setTextColor(0xFFFFE7A8.toInt())
-                    binding.statusSmallText.setTextColor(0xFFFFE7A8.toInt())
+                    binding.diagonalDivider.setBackgroundColor(0x99FFE08A.toInt())
+                    binding.numberText.setTextColor(0xFFEEE8AA.toInt())
+                    binding.categoryLetterText.setTextColor(0xFFEEE8AA.toInt())
+                    binding.statusSmallText.setTextColor(0xFFEEE8AA.toInt())
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
-                    binding.cardRoot.strokeColor = 0xFFD9A73F.toInt()
+                    binding.cardRoot.strokeColor = 0xFFFFE4C4.toInt()
                 }
 
                 VisualState.SERVICE -> {
@@ -112,13 +111,12 @@ class QueueAdapter(
                         endColor = 0xFF150510.toInt(),
                         strokeColor = 0x00000000
                     )
-                    binding.diagonalDivider.setBackgroundColor(0x99FF6ADB.toInt())
-                    binding.positionText.setTextColor(0xFFFF67D8.toInt())
-                    binding.numberText.setTextColor(0xFFFFD9F8.toInt())
-                    binding.categoryLetterText.setTextColor(0xFFFFCBF2.toInt())
-                    binding.statusSmallText.setTextColor(0xFFFFCBF2.toInt())
+                    binding.diagonalDivider.setBackgroundColor(0x99FF9CE8.toInt())
+                    binding.numberText.setTextColor(0xFFFFE4FB.toInt())
+                    binding.categoryLetterText.setTextColor(0xFFFFE4FB.toInt())
+                    binding.statusSmallText.setTextColor(0xFFFFE4FB.toInt())
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
-                    binding.cardRoot.strokeColor = 0xFFCF3FB3.toInt()
+                    binding.cardRoot.strokeColor = 0xFFE257C9.toInt()
                 }
 
                 VisualState.JURNIEKS -> {
@@ -128,40 +126,19 @@ class QueueAdapter(
                         endColor = 0xFF05101E.toInt(),
                         strokeColor = 0x00000000
                     )
-                    binding.diagonalDivider.setBackgroundColor(0x9985D9FF.toInt())
-                    binding.positionText.setTextColor(0xFF4DB7FF.toInt())
-                    binding.numberText.setTextColor(0xFFCDEFFF.toInt())
-                    binding.categoryLetterText.setTextColor(0xFFBDE7FF.toInt())
-                    binding.statusSmallText.setTextColor(0xFFBDE7FF.toInt())
+                    binding.diagonalDivider.setBackgroundColor(0x99A9E5FF.toInt())
+                    binding.numberText.setTextColor(0xFFE2F5FF.toInt())
+                    binding.categoryLetterText.setTextColor(0xFFE2F5FF.toInt())
+                    binding.statusSmallText.setTextColor(0xFFE2F5FF.toInt())
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
-                    binding.cardRoot.strokeColor = 0xFF218DDF.toInt()
+                    binding.cardRoot.strokeColor = 0xFF46A7F2.toInt()
                 }
             }
 
-            binding.numberText.setShadowLayer(
-                10f,
-                0f,
-                1f,
-                0x66000000
-            )
-            binding.positionText.setShadowLayer(
-                8f,
-                0f,
-                1f,
-                0x66000000
-            )
-            binding.categoryLetterText.setShadowLayer(
-                6f,
-                0f,
-                1f,
-                0x55000000
-            )
-            binding.statusSmallText.setShadowLayer(
-                6f,
-                0f,
-                1f,
-                0x55000000
-            )
+            binding.numberText.setShadowLayer(10f, 0f, 1f, 0x66000000)
+            binding.positionText.setShadowLayer(8f, 0f, 1f, 0x66000000)
+            binding.categoryLetterText.setShadowLayer(6f, 0f, 1f, 0x55000000)
+            binding.statusSmallText.setShadowLayer(6f, 0f, 1f, 0x55000000)
 
             val categoryLetter = buildCategoryLetter(info)
 
@@ -206,16 +183,8 @@ class QueueAdapter(
             return when (item.status) {
                 Status.SERVICE,
                 Status.OFFICE -> VisualState.SERVICE
-
                 Status.JURNIEKS -> VisualState.JURNIEKS
-
-                Status.NONE -> {
-                    if (info.isMyCar) {
-                        VisualState.MY_CAR
-                    } else {
-                        VisualState.STANDARD
-                    }
-                }
+                Status.NONE -> if (info.isMyCar) VisualState.MY_CAR else VisualState.STANDARD
             }
         }
 
