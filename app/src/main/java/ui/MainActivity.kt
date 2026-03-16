@@ -463,7 +463,6 @@ class MainActivity : AppCompatActivity() {
             popup.dismiss()
         }
 
-
         popup.contentView.measure(
             View.MeasureSpec.makeMeasureSpec(resources.displayMetrics.widthPixels, View.MeasureSpec.AT_MOST),
             View.MeasureSpec.makeMeasureSpec(resources.displayMetrics.heightPixels, View.MeasureSpec.AT_MOST)
@@ -593,7 +592,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateAutocopyButtonText() {
-        binding.btnAutocopy.text = if (autoCopyEnabled) "AUTOCOPY OFF" else "AUTOCOPY ON"
+        binding.btnAutocopy.text = if (autoCopyEnabled) "AUTOCOPY ON" else "AUTOCOPY OFF"
     }
 
     private fun handleManualSubmit() {
