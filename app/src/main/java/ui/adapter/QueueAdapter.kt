@@ -76,87 +76,64 @@ class QueueAdapter(
             when (visualState) {
                 VisualState.STANDARD -> {
                     binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_standard_3d)
-
                     binding.leftPanel.background = createLeftPanelDrawable(
                         startColor = 0xFF1B0F00.toInt(),
                         endColor = 0xFF090500.toInt(),
                         strokeColor = 0x00000000
                     )
-
                     binding.diagonalDivider.setBackgroundColor(Color.TRANSPARENT)
-
                     binding.numberText.setBackgroundColor(0xFFFFDAB9.toInt())
                     binding.numberText.setTextColor(0xFF090500.toInt())
-
                     binding.categoryLetterText.setTextColor(0xFF090500.toInt())
                     binding.statusSmallText.setTextColor(0xFF090500.toInt())
-
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
                     binding.cardRoot.strokeColor = 0xFFD8AF45.toInt()
                 }
 
                 VisualState.MY_CAR -> {
-
                     binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_my_car_3d)
-
                     binding.leftPanel.background = createLeftPanelDrawable(
                         startColor = 0xFF241400.toInt(),
                         endColor = 0xFF0C0700.toInt(),
                         strokeColor = 0x00000000
                     )
-
                     binding.diagonalDivider.setBackgroundColor(Color.TRANSPARENT)
-
                     binding.numberText.setBackgroundColor(Color.TRANSPARENT)
-
-                    // ЦВЕТ НОМЕРА ТЕПЕРЬ ТАКОЙ ЖЕ КАК У СТАНДАРТНОЙ КАРТОЧКИ
-                    binding.numberText.setTextColor(0xFF090500.toInt())
-
+                    binding.numberText.setTextColor(0xFFEEE8AA.toInt())
                     binding.categoryLetterText.setTextColor(0xFFEEE8AA.toInt())
                     binding.statusSmallText.setTextColor(0xFFEEE8AA.toInt())
-
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
                     binding.cardRoot.strokeColor = 0xFFFFE4C4.toInt()
                 }
 
                 VisualState.SERVICE -> {
                     binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_service_3d)
-
                     binding.leftPanel.background = createLeftPanelDrawable(
                         startColor = 0xFF220716.toInt(),
                         endColor = 0xFF150510.toInt(),
                         strokeColor = 0x00000000
                     )
-
-                    binding.diagonalDivider.setBackgroundColor(0x99FF9CE8.toInt())
-
+                    binding.diagonalDivider.setBackgroundColor(Color.TRANSPARENT)
                     binding.numberText.setBackgroundColor(Color.TRANSPARENT)
                     binding.numberText.setTextColor(0xFFFFE4FB.toInt())
-
                     binding.categoryLetterText.setTextColor(0xFFFFE4FB.toInt())
                     binding.statusSmallText.setTextColor(0xFFFFE4FB.toInt())
-
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
                     binding.cardRoot.strokeColor = 0xFFE257C9.toInt()
                 }
 
                 VisualState.JURNIEKS -> {
                     binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_jurnieks_3d)
-
                     binding.leftPanel.background = createLeftPanelDrawable(
                         startColor = 0xFF071327.toInt(),
                         endColor = 0xFF05101E.toInt(),
                         strokeColor = 0x00000000
                     )
-
-                    binding.diagonalDivider.setBackgroundColor(0x99A9E5FF.toInt())
-
+                    binding.diagonalDivider.setBackgroundColor(Color.TRANSPARENT)
                     binding.numberText.setBackgroundColor(Color.TRANSPARENT)
                     binding.numberText.setTextColor(0xFFE2F5FF.toInt())
-
                     binding.categoryLetterText.setTextColor(0xFFE2F5FF.toInt())
                     binding.statusSmallText.setTextColor(0xFFE2F5FF.toInt())
-
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
                     binding.cardRoot.strokeColor = 0xFF46A7F2.toInt()
                 }
