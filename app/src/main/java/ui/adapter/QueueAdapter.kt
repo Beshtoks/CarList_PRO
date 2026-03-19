@@ -1,7 +1,6 @@
 package com.carlist.pro.ui.adapter
 
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -70,72 +69,51 @@ class QueueAdapter(
             val visualState = resolveVisualState(item, info)
 
             binding.positionText.text = queuePosition.toString()
-            binding.positionText.setTextColor(0xFFDEB887.toInt())
+            binding.positionText.setTextColor(0xFF3A1700.toInt())
             binding.numberText.text = item.number.toString()
+
+            binding.leftPanel.setBackgroundResource(R.drawable.bg_queue_left_panel_gold_strict)
+            binding.diagonalDivider.setBackgroundColor(Color.TRANSPARENT)
 
             when (visualState) {
                 VisualState.STANDARD -> {
                     binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_standard_3d)
-                    binding.leftPanel.background = createLeftPanelDrawable(
-                        startColor = 0xFF1B0F00.toInt(),
-                        endColor = 0xFF090500.toInt(),
-                        strokeColor = 0x00000000
-                    )
-                    binding.diagonalDivider.setBackgroundColor(Color.TRANSPARENT)
                     binding.numberText.setBackgroundColor(0xFFFFDAB9.toInt())
                     binding.numberText.setTextColor(0xFF090500.toInt())
                     binding.categoryLetterText.setTextColor(0xFF090500.toInt())
                     binding.statusSmallText.setTextColor(0xFF090500.toInt())
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
-                    binding.cardRoot.strokeColor = 0xFFD8AF45.toInt()
+                    binding.cardRoot.strokeColor = 0xFFE7B84D.toInt()
                 }
 
                 VisualState.MY_CAR -> {
                     binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_my_car_3d)
-                    binding.leftPanel.background = createLeftPanelDrawable(
-                        startColor = 0xFF241400.toInt(),
-                        endColor = 0xFF0C0700.toInt(),
-                        strokeColor = 0x00000000
-                    )
-                    binding.diagonalDivider.setBackgroundColor(Color.TRANSPARENT)
                     binding.numberText.setBackgroundColor(Color.TRANSPARENT)
-                    binding.numberText.setTextColor(0xFFEEE8AA.toInt())
-                    binding.categoryLetterText.setTextColor(0xFFEEE8AA.toInt())
-                    binding.statusSmallText.setTextColor(0xFFEEE8AA.toInt())
+                    binding.numberText.setTextColor(0xFF4A2A00.toInt())
+                    binding.categoryLetterText.setTextColor(0xFF4A2A00.toInt())
+                    binding.statusSmallText.setTextColor(0xFF4A2A00.toInt())
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
                     binding.cardRoot.strokeColor = 0xFFFFE4C4.toInt()
                 }
 
                 VisualState.SERVICE -> {
                     binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_service_3d)
-                    binding.leftPanel.background = createLeftPanelDrawable(
-                        startColor = 0xFF220716.toInt(),
-                        endColor = 0xFF150510.toInt(),
-                        strokeColor = 0x00000000
-                    )
-                    binding.diagonalDivider.setBackgroundColor(Color.TRANSPARENT)
                     binding.numberText.setBackgroundColor(Color.TRANSPARENT)
-                    binding.numberText.setTextColor(0xFFFFE4FB.toInt())
-                    binding.categoryLetterText.setTextColor(0xFFFFE4FB.toInt())
-                    binding.statusSmallText.setTextColor(0xFFFFE4FB.toInt())
+                    binding.numberText.setTextColor(0xFFFFFFFF.toInt())
+                    binding.categoryLetterText.setTextColor(0xFFFFFFFF.toInt())
+                    binding.statusSmallText.setTextColor(0xFFFFFFFF.toInt())
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
-                    binding.cardRoot.strokeColor = 0xFFE257C9.toInt()
+                    binding.cardRoot.strokeColor = 0xFFFF97D8.toInt()
                 }
 
                 VisualState.JURNIEKS -> {
                     binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_jurnieks_3d)
-                    binding.leftPanel.background = createLeftPanelDrawable(
-                        startColor = 0xFF071327.toInt(),
-                        endColor = 0xFF05101E.toInt(),
-                        strokeColor = 0x00000000
-                    )
-                    binding.diagonalDivider.setBackgroundColor(Color.TRANSPARENT)
                     binding.numberText.setBackgroundColor(Color.TRANSPARENT)
-                    binding.numberText.setTextColor(0xFFE2F5FF.toInt())
-                    binding.categoryLetterText.setTextColor(0xFFE2F5FF.toInt())
-                    binding.statusSmallText.setTextColor(0xFFE2F5FF.toInt())
+                    binding.numberText.setTextColor(0xFFFFFFFF.toInt())
+                    binding.categoryLetterText.setTextColor(0xFFFFFFFF.toInt())
+                    binding.statusSmallText.setTextColor(0xFFFFFFFF.toInt())
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
-                    binding.cardRoot.strokeColor = 0xFF46A7F2.toInt()
+                    binding.cardRoot.strokeColor = 0xFF9FD8FF.toInt()
                 }
             }
 
@@ -147,21 +125,21 @@ class QueueAdapter(
             )
 
             binding.positionText.setShadowLayer(
-                4f,
-                0f,
-                1f,
-                0x66000000
-            )
-
-            binding.categoryLetterText.setShadowLayer(
                 3f,
                 0f,
                 1f,
                 0x55000000
             )
 
+            binding.categoryLetterText.setShadowLayer(
+                2f,
+                0f,
+                1f,
+                0x55000000
+            )
+
             binding.statusSmallText.setShadowLayer(
-                3f,
+                2f,
                 0f,
                 1f,
                 0x55000000
@@ -174,19 +152,23 @@ class QueueAdapter(
                     binding.statusSmallText.visibility = View.VISIBLE
                     binding.statusSmallText.text = "SERVICE"
                     binding.categoryLetterText.visibility = View.GONE
+                    binding.categoryLetterText.text = ""
                 }
 
                 Status.OFFICE -> {
                     binding.statusSmallText.visibility = View.VISIBLE
                     binding.statusSmallText.text = "OFFICE"
                     binding.categoryLetterText.visibility = View.GONE
+                    binding.categoryLetterText.text = ""
                 }
 
                 else -> {
                     binding.statusSmallText.visibility = View.GONE
+                    binding.statusSmallText.text = ""
 
                     if (categoryLetter.isEmpty()) {
                         binding.categoryLetterText.visibility = View.GONE
+                        binding.categoryLetterText.text = ""
                     } else {
                         binding.categoryLetterText.visibility = View.VISIBLE
                         binding.categoryLetterText.text = categoryLetter
@@ -216,33 +198,9 @@ class QueueAdapter(
             }
         }
 
-        private fun createLeftPanelDrawable(
-            startColor: Int,
-            endColor: Int,
-            strokeColor: Int
-        ): GradientDrawable {
-            return GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(startColor, endColor)
-            ).apply {
-                cornerRadii = floatArrayOf(
-                    dpToPxF(5f), dpToPxF(5f),
-                    0f, 0f,
-                    0f, 0f,
-                    dpToPxF(5f), dpToPxF(5f)
-                )
-                setStroke(dpToPx(0f), strokeColor)
-            }
-        }
-
         private fun dpToPx(dp: Float): Int {
             val density = binding.root.resources.displayMetrics.density
             return (dp * density + 0.5f).toInt()
-        }
-
-        private fun dpToPxF(dp: Float): Float {
-            val density = binding.root.resources.displayMetrics.density
-            return dp * density
         }
 
         private enum class VisualState {

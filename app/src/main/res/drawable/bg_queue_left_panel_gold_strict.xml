@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Основная форма -->
+    <item>
+        <shape android:shape="rectangle">
+
+            <!-- Градиент (объём) -->
+            <gradient
+                android:startColor="#FFE9A0"
+                android:centerColor="#F3C24F"
+                android:endColor="#D79A27"
+                android:angle="0" />
+
+            <!-- ВАЖНО: слева прямые углы, справа радиус -->
+            <corners
+                android:topLeftRadius="0dp"
+                android:bottomLeftRadius="0dp"
+                android:topRightRadius="28dp"
+                android:bottomRightRadius="28dp" />
+
+        </shape>
+    </item>
+
+    <!-- Верхний блик -->
+    <item android:top="2dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:startColor="#70FFFFFF"
+                android:endColor="#00FFFFFF"
+                android:angle="270" />
+
+            <corners
+                android:topLeftRadius="0dp"
+                android:bottomLeftRadius="0dp"
+                android:topRightRadius="26dp"
+                android:bottomRightRadius="26dp" />
+        </shape>
+    </item>
+
+    <!-- Лёгкое затемнение снизу (3D эффект без «второго слоя») -->
+    <item android:bottom="2dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:startColor="#00000000"
+                android:endColor="#33000000"
+                android:angle="270" />
+
+            <corners
+                android:topLeftRadius="0dp"
+                android:bottomLeftRadius="0dp"
+                android:topRightRadius="28dp"
+                android:bottomRightRadius="28dp" />
+        </shape>
+    </item>
+
+</layer-list>

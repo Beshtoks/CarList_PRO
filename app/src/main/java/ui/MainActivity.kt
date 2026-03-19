@@ -216,10 +216,6 @@ class MainActivity : AppCompatActivity() {
                                 val last = list.lastIndex
                                 layoutManager.scrollToPositionWithOffset(last, 0)
                             }
-
-                            !isTechMenuOpen && list.isNotEmpty() -> {
-                                ensureMyCarVisible(list)
-                            }
                         }
                     }
                 }
@@ -744,26 +740,6 @@ class MainActivity : AppCompatActivity() {
         }
         val pos = viewModel.findMyCarPosition(queue)
         binding.counterText.text = if (pos == null) "- /$total" else "$pos /$total"
-    }
-
-    private fun ensureMyCarVisible(queue: List<QueueItem>) {
-        val myCarPosition = viewModel.findMyCarPosition(queue) ?: return
-        val myCarIndex = myCarPosition - 1
-        if (myCarIndex !in queue.indices) return
-
-        val firstVisible = layoutManager.findFirstVisibleItemPosition()
-        val lastVisible = layoutManager.findLastVisibleItemPosition()
-
-        if (firstVisible == androidx.recyclerview.widget.RecyclerView.NO_POSITION ||
-            lastVisible == androidx.recyclerview.widget.RecyclerView.NO_POSITION
-        ) {
-            layoutManager.scrollToPositionWithOffset(myCarIndex, 0)
-            return
-        }
-
-        if (myCarIndex < firstVisible || myCarIndex > lastVisible) {
-            layoutManager.scrollToPositionWithOffset(myCarIndex, 0)
-        }
     }
 
     private fun setupImeHandling() {

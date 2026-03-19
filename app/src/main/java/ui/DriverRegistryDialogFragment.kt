@@ -62,6 +62,7 @@ class DriverRegistryDialogFragment : DialogFragment() {
         binding.registryRecycler.adapter = adapter
 
         binding.btnOk.setOnClickListener {
+            commitActiveFieldIfVisible()
             viewModel.sortRegistryNumbersForClose()
             adapter.refresh()
             dismissAllowingStateLoss()
@@ -129,6 +130,25 @@ class DriverRegistryDialogFragment : DialogFragment() {
         }
 
         viewModel.setRegistryActiveRow(0)
+    }
+
+    private fun commitActiveFieldIfVisible() {
+        val activePosition = viewModel.getRegistryActiveRow().coerceAtLeast(0)
+        val rows = viewModel.getRegistryRows()
+        val row = rows.getOrNull(activePosition) ?: return
+
+        val holder =
+            binding.registryRecycler.findViewHolderForAdapterPosition(activePosition)
+                    as? DriverRegistryAdapter.VH
+                ?: return
+
+        val text = holder.getEditText().text?.toString().orEmpty()
+
+        viewModel.commitRegistryNumber(
+            activePosition,
+            row.number,
+            text
+        )
     }
 
     private fun focusActiveFieldAndShowKeyboard() {
