@@ -89,9 +89,9 @@ class QueueAdapter(
                 VisualState.MY_CAR -> {
                     binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_my_car_3d)
                     binding.numberText.setBackgroundColor(Color.TRANSPARENT)
-                    binding.numberText.setTextColor(0xFF4A2A00.toInt())
-                    binding.categoryLetterText.setTextColor(0xFF4A2A00.toInt())
-                    binding.statusSmallText.setTextColor(0xFF4A2A00.toInt())
+                    binding.numberText.setTextColor(0xFF808000.toInt())
+                    binding.categoryLetterText.setTextColor(0xFF808000.toInt())
+                    binding.statusSmallText.setTextColor(0xFF808000.toInt())
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
                     binding.cardRoot.strokeColor = 0xFFFFE4C4.toInt()
                 }
@@ -99,9 +99,9 @@ class QueueAdapter(
                 VisualState.SERVICE -> {
                     binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_service_3d)
                     binding.numberText.setBackgroundColor(Color.TRANSPARENT)
-                    binding.numberText.setTextColor(0xFFFFFFFF.toInt())
-                    binding.categoryLetterText.setTextColor(0xFFFFFFFF.toInt())
-                    binding.statusSmallText.setTextColor(0xFFFFFFFF.toInt())
+                    binding.numberText.setTextColor(0xFF800080.toInt())
+                    binding.categoryLetterText.setTextColor(0xFF800080.toInt())
+                    binding.statusSmallText.setTextColor(0xFF800080.toInt())
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
                     binding.cardRoot.strokeColor = 0xFFFF97D8.toInt()
                 }
@@ -109,41 +109,18 @@ class QueueAdapter(
                 VisualState.JURNIEKS -> {
                     binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_jurnieks_3d)
                     binding.numberText.setBackgroundColor(Color.TRANSPARENT)
-                    binding.numberText.setTextColor(0xFFFFFFFF.toInt())
-                    binding.categoryLetterText.setTextColor(0xFFFFFFFF.toInt())
-                    binding.statusSmallText.setTextColor(0xFFFFFFFF.toInt())
+                    binding.numberText.setTextColor(0xFF000080.toInt())
+                    binding.categoryLetterText.setTextColor(0xFF000080.toInt())
+                    binding.statusSmallText.setTextColor(0xFF000080.toInt())
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
                     binding.cardRoot.strokeColor = 0xFF9FD8FF.toInt()
                 }
             }
 
-            binding.numberText.setShadowLayer(
-                2f,
-                0f,
-                1f,
-                0x55000000
-            )
-
-            binding.positionText.setShadowLayer(
-                3f,
-                0f,
-                1f,
-                0x55000000
-            )
-
-            binding.categoryLetterText.setShadowLayer(
-                2f,
-                0f,
-                1f,
-                0x55000000
-            )
-
-            binding.statusSmallText.setShadowLayer(
-                2f,
-                0f,
-                1f,
-                0x55000000
-            )
+            binding.numberText.setShadowLayer(2f, 0f, 1f, 0x55000000)
+            binding.positionText.setShadowLayer(3f, 0f, 1f, 0x55000000)
+            binding.categoryLetterText.setShadowLayer(2f, 0f, 1f, 0x55000000)
+            binding.statusSmallText.setShadowLayer(2f, 0f, 1f, 0x55000000)
 
             val categoryLetter = buildCategoryLetter(info)
 
