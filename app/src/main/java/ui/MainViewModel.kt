@@ -74,7 +74,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             queueManager = queueManager,
             queueStateStore = queueStateStore,
             registryStore = registryStore,
-            onQueuePublished = { snapshot -> _queueItems.value = snapshot },
+            onQueuePublished = { snapshot ->
+                _queueItems.value = normalizeFirstItem(snapshot)
+            },
             onPushSnapshotRequested = { snapshot -> syncCoordinator.onLocalSnapshotChanged(snapshot) }
         )
 
@@ -96,6 +98,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
         queueStateCoordinator.initializeFromStorage()
         syncCoordinator.initialize()
+    }
+
+    // 🔴 ВОТ ЭТО ГЛАВНЫЙ ФИКС
+    private fun normalizeFirstItem(list: List<QueueItem>): List<QueueItem> {
+        if (list.isEmpty()) return list
+
+        val first = list[0]
+
+        return if (first.status == Status.JURNIEKS) {
+            list.toMutableList().apply {
+                this[0] = first.copy(status = Status.NONE)
+            }
+        } else {
+            list
+        }
     }
 
     fun addNumber(numberOrNull: Int?): QueueManager.AddResult {

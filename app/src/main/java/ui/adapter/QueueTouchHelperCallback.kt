@@ -1,6 +1,5 @@
 package com.carlist.pro.ui.adapter
 
-
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 
@@ -8,7 +7,8 @@ class QueueTouchHelperCallback(
     private val onMoveForDrag: (from: Int, to: Int) -> Unit,
     private val onSwipedRight: (position: Int) -> Unit,
     private val onDragStateChanged: (dragging: Boolean) -> Unit,
-    private val onDragEnded: (from: Int, to: Int) -> Unit
+    private val onDragEnded: (from: Int, to: Int) -> Unit,
+    private val isQueueReadOnly: () -> Boolean
 ) : ItemTouchHelper.Callback() {
 
     private var dragFrom: Int = RecyclerView.NO_POSITION
@@ -38,6 +38,8 @@ class QueueTouchHelperCallback(
         viewHolder: RecyclerView.ViewHolder,
         target: RecyclerView.ViewHolder
     ): Boolean {
+        if (isQueueReadOnly()) return false
+
         val from = viewHolder.bindingAdapterPosition
         val to = target.bindingAdapterPosition
 
@@ -60,7 +62,8 @@ class QueueTouchHelperCallback(
 
         onDragStateChanged(false)
 
-        if (dragFrom != RecyclerView.NO_POSITION &&
+        if (!isQueueReadOnly() &&
+            dragFrom != RecyclerView.NO_POSITION &&
             dragTo != RecyclerView.NO_POSITION &&
             dragFrom != dragTo
         ) {
@@ -71,6 +74,7 @@ class QueueTouchHelperCallback(
         dragTo = RecyclerView.NO_POSITION
     }
 
-    override fun isLongPressDragEnabled(): Boolean = true
+    override fun isLongPressDragEnabled(): Boolean = !isQueueReadOnly()
+
     override fun isItemViewSwipeEnabled(): Boolean = true
 }

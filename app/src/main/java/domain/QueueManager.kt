@@ -1,18 +1,5 @@
 package com.carlist.pro.domain
 
-/**
- * Domain-only queue rules engine.
- *
- * HARD RULE:
- * If at least one ACTIVE exists anywhere in the list:
- * index 0 must be ACTIVE.
- *
- * PASSIVE = status == SERVICE || status == OFFICE
- * ACTIVE  = all other statuses
- *
- * Auto-fix must run after any mutation:
- * add, remove, move, status change, replace, restore, validation cleanup.
- */
 class QueueManager {
 
     sealed class AddResult {
@@ -88,9 +75,6 @@ class QueueManager {
         return OperationResult.Success
     }
 
-    /**
-     * Move item from -> to (drag & drop).
-     */
     fun move(from: Int, to: Int): OperationResult {
 
         if (from !in items.indices || to !in items.indices) return OperationResult.InvalidIndex
@@ -132,17 +116,6 @@ class QueueManager {
         return OperationResult.Success
     }
 
-    /**
-     * Safely replaces one queue number with another while preserving:
-     * - queue position
-     * - item status
-     *
-     * Rules:
-     * - oldNumber must exist in queue
-     * - newNumber must be in 1..99
-     * - newNumber must not already exist in queue
-     * - if registry validator is provided, newNumber must be allowed there
-     */
     fun replaceNumber(
         oldNumber: Int,
         newNumber: Int,
@@ -171,10 +144,6 @@ class QueueManager {
         return OperationResult.Success
     }
 
-    /**
-     * Removes queue items whose numbers are no longer present in registry.
-     * Returns the removed numbers for diagnostics / UI decisions.
-     */
     fun validateAgainstRegistry(
         isNumberAllowedByRegistry: (Int) -> Boolean
     ): ValidationResult {
@@ -198,15 +167,6 @@ class QueueManager {
         )
     }
 
-    /**
-     * Restores queue state from an external snapshot.
-     *
-     * Safety rules during restore:
-     * - number must be in 1..99
-     * - duplicates are ignored (first valid occurrence wins)
-     * - if registry validator is provided, invalid registry numbers are skipped
-     * - final queue is auto-fixed to respect active item at position 0
-     */
     fun restoreFromSnapshot(
         snapshot: List<QueueItem>,
         isNumberAllowedByRegistry: ((Int) -> Boolean)? = null
@@ -238,11 +198,18 @@ class QueueManager {
 
         if (items.isEmpty()) return
 
+        // 🔹 СНАЧАЛА — фикс JURNIEKS
+        val first = items[0]
+        if (first.status == Status.JURNIEKS) {
+            items[0] = first.copy(status = Status.NONE)
+        }
+
+        // 🔹 ПЕРЕЧИТЫВАЕМ после изменения
+        val updatedFirst = items[0]
+
         if (!hasAnyActive(excludingIndex = null)) return
 
-        val first = items[0]
-
-        if (!isPassiveStatus(first.status)) return
+        if (!isPassiveStatus(updatedFirst.status)) return
 
         val activeIndex = items.indexOfFirst { it.isActive }
 

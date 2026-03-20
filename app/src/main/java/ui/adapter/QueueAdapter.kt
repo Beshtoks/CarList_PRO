@@ -20,6 +20,12 @@ class QueueAdapter(
 
     private val items: MutableList<QueueItem> = mutableListOf()
 
+    // 🔴 контроль анимации
+    private var lastAnimatedNumber: Int? = null
+
+    // 🔴 запоминаем прошлые статусы
+    private val lastStatuses = mutableMapOf<Int, Status>()
+
     fun submitItems(newItems: List<QueueItem>) {
         items.clear()
         items.addAll(newItems)
@@ -46,15 +52,67 @@ class QueueAdapter(
     }
 
     override fun onBindViewHolder(holder: VH, position: Int) {
+        val item = items[position]
+
+        val previousStatus = lastStatuses[item.number]
+        lastStatuses[item.number] = item.status
+
         holder.bind(
-            item = items[position],
+            item = item,
             queuePosition = position + 1,
             infoProvider = transportInfoProvider,
             onCardShortTap = onCardShortTap
         )
+
+        // 🔴 АНИМАЦИЯ ТОЛЬКО ДЛЯ БЫВШЕГО JURNIEKS
+        if (
+            position == 0 &&
+            previousStatus == Status.JURNIEKS &&
+            item.status == Status.NONE &&
+            lastAnimatedNumber != item.number
+        ) {
+
+            lastAnimatedNumber = item.number
+
+            val root = holder.itemView
+            val originalItem = item
+
+            root.post {
+
+                val states = listOf(
+                    Status.JURNIEKS,
+                    Status.NONE,
+                    Status.JURNIEKS,
+                    Status.NONE,
+                    Status.NONE
+                )
+
+                states.forEachIndexed { index, status ->
+                    root.postDelayed({
+
+                        if (bindingAdapterPositionInvalid(holder)) return@postDelayed
+
+                        val tempItem = originalItem.copy(status = status)
+
+                        holder.bind(
+                            item = tempItem,
+                            queuePosition = 1,
+                            infoProvider = transportInfoProvider,
+                            onCardShortTap = onCardShortTap
+                        )
+
+                    }, index * 80L)
+                }
+            }
+        }
     }
 
     override fun getItemCount(): Int = items.size
+
+    private fun bindingAdapterPositionInvalid(holder: VH): Boolean {
+        val pos = holder.bindingAdapterPosition
+        return pos == RecyclerView.NO_POSITION || pos != 0
+    }
 
     class VH(
         private val binding: ItemQueueCardBinding
@@ -69,10 +127,10 @@ class QueueAdapter(
             val info = infoProvider?.invoke(item.number) ?: TransportInfo()
 
             binding.positionText.text = queuePosition.toString()
-            binding.positionText.setTextColor(0xFF090500.toInt())
+            binding.positionText.setTextColor(0xFFA0522D.toInt())
+
             binding.numberText.text = item.number.toString()
 
-            // Левая панель (MY_CAR — ярко-жёлтая с тем же drawable)
             if (info.isMyCar) {
                 binding.leftPanel.setBackgroundResource(R.drawable.bg_queue_left_panel_mycar)
             } else {
@@ -99,7 +157,6 @@ class QueueAdapter(
                     binding.cardSurface.background = MyCarSpiralDrawable()
 
                     binding.numberText.setBackgroundColor(Color.TRANSPARENT)
-                    // 👉 ВОТ ЭТО ИЗМЕНЕНИЕ: как у стандартной карточки
                     binding.numberText.setTextColor(0xFF090500.toInt())
 
                     binding.categoryLetterText.setTextColor(0xFF808000.toInt())
