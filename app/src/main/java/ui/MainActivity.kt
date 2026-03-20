@@ -10,6 +10,9 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
@@ -436,7 +439,30 @@ class MainActivity : AppCompatActivity() {
     private fun showStatusMenu(anchor: View, item: QueueItem) {
         val popupBinding = PopupStatusMenuBinding.inflate(layoutInflater)
 
-        popupBinding.actionStandard.text = "STANDARD ${item.number}"
+        popupBinding.actionStandard.text = "STANDARD"
+        popupBinding.actionService.text = "SERVICE"
+        popupBinding.actionOffice.text = "OFFICE"
+        popupBinding.actionJurnieks.text = "JURNIEKS"
+
+        val numberColor = popupBinding.actionStandard.currentTextColor
+
+        when (item.status) {
+            Status.NONE -> {
+                popupBinding.actionStandard.text = buildStatusMenuLine("STANDARD", item.number, numberColor)
+            }
+
+            Status.SERVICE -> {
+                popupBinding.actionService.text = buildStatusMenuLine("SERVICE", item.number, numberColor)
+            }
+
+            Status.OFFICE -> {
+                popupBinding.actionOffice.text = buildStatusMenuLine("OFFICE", item.number, numberColor)
+            }
+
+            Status.JURNIEKS -> {
+                popupBinding.actionJurnieks.text = buildStatusMenuLine("JURNIEKS", item.number, numberColor)
+            }
+        }
 
         val popup = PopupWindow(
             popupBinding.root,
@@ -524,6 +550,21 @@ class MainActivity : AppCompatActivity() {
         }
 
         popup.showAtLocation(window.decorView, Gravity.TOP or Gravity.START, x, y)
+    }
+
+    private fun buildStatusMenuLine(label: String, number: Int, numberColor: Int): SpannableString {
+        val fullText = "$label $number"
+        val spannable = SpannableString(fullText)
+        val start = fullText.lastIndexOf(number.toString())
+        if (start >= 0) {
+            spannable.setSpan(
+                ForegroundColorSpan(numberColor),
+                start,
+                fullText.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+        return spannable
     }
 
     private fun applyInputVisualState(imeVisible: Boolean) {
