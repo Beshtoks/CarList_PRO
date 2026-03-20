@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- ТЕНЬ (оставляем как есть) -->
+    <item android:bottom="3dp">
+        <shape android:shape="rectangle">
+            <solid android:color="#D4A300"/>
+            <corners android:topLeftRadius="0dp"
+                android:bottomLeftRadius="0dp"
+                android:topRightRadius="18dp"
+                android:bottomRightRadius="18dp"/>
+        </shape>
+    </item>
+
+    <!-- ОСНОВНОЙ ГРАДИЕНТ (ярко-жёлтый) -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:startColor="#FFF176"
+                android:centerColor="#FFD700"
+                android:endColor="#FFC107"
+                android:angle="270"/>
+            <corners android:topLeftRadius="0dp"
+                android:bottomLeftRadius="0dp"
+                android:topRightRadius="18dp"
+                android:bottomRightRadius="18dp"/>
+        </shape>
+    </item>
+
+    <!-- БЛИК -->
+    <item android:top="2dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:startColor="#80FFFFFF"
+                android:endColor="#00FFFFFF"
+                android:angle="270"/>
+            <corners android:topLeftRadius="0dp"
+                android:bottomLeftRadius="0dp"
+                android:topRightRadius="18dp"
+                android:bottomRightRadius="18dp"/>
+        </shape>
+    </item>
+
+</layer-list>

@@ -77,6 +77,7 @@ class MainActivity : AppCompatActivity() {
     private var lastAutoCopiedText = ""
     private var suppressNextQueueAutoScroll = false
     private var backgroundServiceStarted = false
+    private var pendingServerToggleSound = false
 
     private val recordAudioPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -230,6 +231,24 @@ class MainActivity : AppCompatActivity() {
 
         viewModel.syncState.observe(this) { state ->
             updateSyncInfoTextColor(state)
+
+            if (pendingServerToggleSound) {
+                when (state) {
+                    SyncState.Connecting,
+                    SyncState.Off -> {
+                        uiSoundManager.playSync()
+                        feedback.ok()
+                        pendingServerToggleSound = false
+                    }
+
+                    SyncState.NoNetwork,
+                    SyncState.NeedMyCar -> {
+                        pendingServerToggleSound = false
+                    }
+
+                    else -> Unit
+                }
+            }
         }
 
         viewModel.syncMessage.observe(this) { message ->
@@ -380,6 +399,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.infoPanel.setOnLongClickListener {
+            pendingServerToggleSound = true
             viewModel.onServerPanelLongPress()
             true
         }
@@ -540,13 +560,23 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnClearList.setOnLongClickListener {
+            val listIsEmpty = viewModel.queueItems.value.orEmpty().isEmpty()
+
+            if (listIsEmpty) {
+                viewModel.clear()
+                lastAutoCopiedText = ""
+                uiSoundManager.playClear()
+                feedback.warning()
+                return@setOnLongClickListener true
+            }
+
             val dialog = MaterialAlertDialogBuilder(this)
                 .setTitle("CLEAR LIST")
                 .setMessage("Are you sure?")
                 .setPositiveButton("YES") { _, _ ->
                     viewModel.clear()
                     lastAutoCopiedText = ""
-                    uiSoundManager.playWarning()
+                    uiSoundManager.playClear()
                     feedback.warning()
                 }
                 .setNegativeButton("NO", null)

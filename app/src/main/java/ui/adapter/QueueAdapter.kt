@@ -11,6 +11,7 @@ import com.carlist.pro.domain.QueueItem
 import com.carlist.pro.domain.Status
 import com.carlist.pro.domain.TransportInfo
 import com.carlist.pro.domain.TransportType
+import com.carlist.pro.ui.drawable.MyCarSpiralDrawable
 
 class QueueAdapter(
     private val transportInfoProvider: ((Int) -> TransportInfo)? = null,
@@ -66,52 +67,68 @@ class QueueAdapter(
             onCardShortTap: ((item: QueueItem, anchor: View) -> Unit)?
         ) {
             val info = infoProvider?.invoke(item.number) ?: TransportInfo()
-            val visualState = resolveVisualState(item, info)
 
             binding.positionText.text = queuePosition.toString()
-            binding.positionText.setTextColor(0xFF3A1700.toInt())
+            binding.positionText.setTextColor(0xFF090500.toInt())
             binding.numberText.text = item.number.toString()
 
-            binding.leftPanel.setBackgroundResource(R.drawable.bg_queue_left_panel_gold_strict)
+            // Левая панель (MY_CAR — ярко-жёлтая с тем же drawable)
+            if (info.isMyCar) {
+                binding.leftPanel.setBackgroundResource(R.drawable.bg_queue_left_panel_mycar)
+            } else {
+                binding.leftPanel.setBackgroundResource(R.drawable.bg_queue_left_panel_gold_strict)
+            }
+
             binding.diagonalDivider.setBackgroundColor(Color.TRANSPARENT)
 
-            when (visualState) {
+            when (resolveVisualState(item, info)) {
+
                 VisualState.STANDARD -> {
                     binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_standard_3d)
+
                     binding.numberText.setBackgroundColor(0xFFFFDAB9.toInt())
                     binding.numberText.setTextColor(0xFF090500.toInt())
                     binding.categoryLetterText.setTextColor(0xFF090500.toInt())
                     binding.statusSmallText.setTextColor(0xFF090500.toInt())
+
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
                     binding.cardRoot.strokeColor = 0xFFE7B84D.toInt()
                 }
 
                 VisualState.MY_CAR -> {
-                    binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_my_car_3d)
+                    binding.cardSurface.background = MyCarSpiralDrawable()
+
                     binding.numberText.setBackgroundColor(Color.TRANSPARENT)
-                    binding.numberText.setTextColor(0xFF808000.toInt())
+                    // 👉 ВОТ ЭТО ИЗМЕНЕНИЕ: как у стандартной карточки
+                    binding.numberText.setTextColor(0xFF090500.toInt())
+
                     binding.categoryLetterText.setTextColor(0xFF808000.toInt())
                     binding.statusSmallText.setTextColor(0xFF808000.toInt())
+
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
                     binding.cardRoot.strokeColor = 0xFFFFE4C4.toInt()
                 }
 
                 VisualState.SERVICE -> {
                     binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_service_3d)
+
                     binding.numberText.setBackgroundColor(Color.TRANSPARENT)
                     binding.numberText.setTextColor(0xFF800080.toInt())
                     binding.categoryLetterText.setTextColor(0xFF800080.toInt())
                     binding.statusSmallText.setTextColor(0xFF800080.toInt())
+
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
                     binding.cardRoot.strokeColor = 0xFFFF97D8.toInt()
                 }
 
                 VisualState.JURNIEKS -> {
                     binding.cardSurface.setBackgroundResource(R.drawable.bg_queue_card_jurnieks_3d)
+
                     binding.numberText.setBackgroundColor(Color.TRANSPARENT)
                     binding.numberText.setTextColor(0xFF000080.toInt())
                     binding.categoryLetterText.setTextColor(0xFF000080.toInt())
                     binding.statusSmallText.setTextColor(0xFF000080.toInt())
+
                     binding.cardRoot.strokeWidth = dpToPx(1.5f)
                     binding.cardRoot.strokeColor = 0xFF9FD8FF.toInt()
                 }
@@ -128,29 +145,23 @@ class QueueAdapter(
                 Status.SERVICE -> {
                     binding.statusSmallText.visibility = View.VISIBLE
                     binding.statusSmallText.text = "SERVICE"
-                    binding.categoryLetterText.visibility = View.GONE
-                    binding.categoryLetterText.text = ""
                 }
 
                 Status.OFFICE -> {
                     binding.statusSmallText.visibility = View.VISIBLE
                     binding.statusSmallText.text = "OFFICE"
-                    binding.categoryLetterText.visibility = View.GONE
-                    binding.categoryLetterText.text = ""
                 }
 
                 else -> {
                     binding.statusSmallText.visibility = View.GONE
-                    binding.statusSmallText.text = ""
-
-                    if (categoryLetter.isEmpty()) {
-                        binding.categoryLetterText.visibility = View.GONE
-                        binding.categoryLetterText.text = ""
-                    } else {
-                        binding.categoryLetterText.visibility = View.VISIBLE
-                        binding.categoryLetterText.text = categoryLetter
-                    }
                 }
+            }
+
+            if (categoryLetter.isEmpty()) {
+                binding.categoryLetterText.visibility = View.GONE
+            } else {
+                binding.categoryLetterText.visibility = View.VISIBLE
+                binding.categoryLetterText.text = categoryLetter
             }
 
             binding.cardRoot.setOnClickListener {
@@ -160,8 +171,7 @@ class QueueAdapter(
 
         private fun resolveVisualState(item: QueueItem, info: TransportInfo): VisualState {
             return when (item.status) {
-                Status.SERVICE,
-                Status.OFFICE -> VisualState.SERVICE
+                Status.SERVICE, Status.OFFICE -> VisualState.SERVICE
                 Status.JURNIEKS -> VisualState.JURNIEKS
                 Status.NONE -> if (info.isMyCar) VisualState.MY_CAR else VisualState.STANDARD
             }

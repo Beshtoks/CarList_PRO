@@ -14,6 +14,8 @@ class UiSoundManager(context: Context) {
     private var errorSound = 0
     private var deleteSound = 0
     private var warningSound = 0
+    private var clearSound = 0
+    private var syncSound = 0
 
     init {
 
@@ -23,7 +25,7 @@ class UiSoundManager(context: Context) {
             .build()
 
         soundPool = SoundPool.Builder()
-            .setMaxStreams(4)
+            .setMaxStreams(6)
             .setAudioAttributes(attributes)
             .build()
 
@@ -31,6 +33,8 @@ class UiSoundManager(context: Context) {
         errorSound = soundPool.load(context, R.raw.ui_error, 1)
         deleteSound = soundPool.load(context, R.raw.ui_delete, 1)
         warningSound = soundPool.load(context, R.raw.ui_warning, 1)
+        clearSound = soundPool.load(context, R.raw.ui_clear, 1)
+        syncSound = soundPool.load(context, R.raw.ui_sync, 1)
     }
 
     fun setSoundEnabled(enabled: Boolean) {
@@ -55,6 +59,16 @@ class UiSoundManager(context: Context) {
     fun playWarning() {
         if (!soundEnabled) return
         soundPool.play(warningSound, 1f, 1f, 1, 0, 1f)
+    }
+
+    fun playClear() {
+        if (!soundEnabled) return
+        soundPool.play(clearSound, 1f, 1f, 1, 0, 1f)
+    }
+
+    fun playSync() {
+        if (!soundEnabled) return
+        soundPool.play(syncSound, 1f, 1f, 1, 0, 1f)
     }
 
     fun release() {
