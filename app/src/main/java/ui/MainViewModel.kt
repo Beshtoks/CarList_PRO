@@ -74,9 +74,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             queueManager = queueManager,
             queueStateStore = queueStateStore,
             registryStore = registryStore,
-            onQueuePublished = { snapshot ->
-                _queueItems.value = normalizeFirstItem(snapshot)
-            },
+            onQueuePublished = { snapshot -> _queueItems.value = snapshot },
             onPushSnapshotRequested = { snapshot -> syncCoordinator.onLocalSnapshotChanged(snapshot) }
         )
 
@@ -100,19 +98,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         syncCoordinator.initialize()
     }
 
-    // 🔴 ВОТ ЭТО ГЛАВНЫЙ ФИКС
-    private fun normalizeFirstItem(list: List<QueueItem>): List<QueueItem> {
-        if (list.isEmpty()) return list
+    fun replaceNumber(oldNumber: Int, newNumber: Int): QueueManager.OperationResult {
+        val result = queueManager.replaceNumber(
+            oldNumber = oldNumber,
+            newNumber = newNumber,
+            isNumberAllowedByRegistry = { registryStore.isAllowed(it) }
+        )
 
-        val first = list[0]
-
-        return if (first.status == Status.JURNIEKS) {
-            list.toMutableList().apply {
-                this[0] = first.copy(status = Status.NONE)
-            }
-        } else {
-            list
+        if (result is QueueManager.OperationResult.Success) {
+            queueStateCoordinator.publishSnapshot(true)
         }
+
+        return result
     }
 
     fun addNumber(numberOrNull: Int?): QueueManager.AddResult {

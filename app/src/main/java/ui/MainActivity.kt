@@ -87,6 +87,11 @@ class MainActivity : AppCompatActivity() {
     private var blockedFeedbackAtMs = 0L
     private var blockedBlinkToken = 0
 
+    private var replacingNumber: Int? = null
+    private var preserveScrollOnNextImeOpen = false
+    private var preservedFirstVisiblePosition = 0
+    private var preservedFirstVisibleTop = 0
+
     private val recordAudioPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             voiceSessionController.onRecordAudioPermissionResult(granted)
@@ -197,6 +202,24 @@ class MainActivity : AppCompatActivity() {
                     return@QueueAdapter
                 }
                 showStatusMenu(anchor, item)
+            },
+            onCardDoubleTap = { item, _ ->
+                if (isLockedByOther()) {
+                    blockedActionFeedback()
+                    return@QueueAdapter
+                }
+
+                saveCurrentQueueScrollPosition()
+                preserveScrollOnNextImeOpen = true
+                replacingNumber = item.number
+
+                binding.numberInput.setText(item.number.toString())
+                binding.numberInput.requestFocus()
+                binding.numberInput.setSelection(binding.numberInput.text?.length ?: 0)
+
+                val imm = getSystemService(InputMethodManager::class.java)
+                inputUiController.startManualInputMode(binding.numberInput, imm)
+                applyInputVisualState(true)
             }
         )
 
@@ -737,6 +760,51 @@ class MainActivity : AppCompatActivity() {
         val text = binding.numberInput.text?.toString()?.trim().orEmpty()
         val number = text.toIntOrNull()
 
+        if (replacingNumber != null) {
+            val oldNumber = replacingNumber!!
+            val result = viewModel.replaceNumber(oldNumber, number ?: -1)
+
+            when (result) {
+                QueueManager.OperationResult.Success -> {
+                    replacingNumber = null
+                    preserveScrollOnNextImeOpen = false
+                    binding.numberInput.setText("")
+                    uiSoundManager.playOk()
+                    feedback.ok()
+                    requestAutoCopyIfNeeded()
+                }
+
+                QueueManager.OperationResult.DuplicateInQueue -> {
+                    uiSoundManager.playError()
+                    feedback.error()
+                    binding.numberInput.setText("")
+                    showInputProblemDialog("DUPLICATE NUMBER")
+                }
+
+                QueueManager.OperationResult.NotInRegistry -> {
+                    uiSoundManager.playError()
+                    feedback.error()
+                    binding.numberInput.setText("")
+                    showInputProblemDialog("NOT IN REGISTRY")
+                }
+
+                QueueManager.OperationResult.InvalidNumber -> {
+                    uiSoundManager.playError()
+                    feedback.error()
+                    binding.numberInput.setText("")
+                    showInputProblemDialog("INVALID NUMBER")
+                }
+
+                else -> {
+                    uiSoundManager.playError()
+                    feedback.error()
+                    binding.numberInput.setText("")
+                }
+            }
+
+            return
+        }
+
         val result = viewModel.addNumber(number)
 
         when (result) {
@@ -904,10 +972,24 @@ class MainActivity : AppCompatActivity() {
             if (!isTechMenuOpen) {
                 binding.queueRecycler.post {
                     if (imeVisibleNow) {
-                        val count = adapter.itemCount
-                        if (count > 0) layoutManager.scrollToPositionWithOffset(count - 1, 0)
+                        if (preserveScrollOnNextImeOpen) {
+                            layoutManager.scrollToPositionWithOffset(
+                                preservedFirstVisiblePosition,
+                                preservedFirstVisibleTop
+                            )
+                        } else {
+                            val count = adapter.itemCount
+                            if (count > 0) layoutManager.scrollToPositionWithOffset(count - 1, 0)
+                        }
                     } else {
-                        layoutManager.scrollToPositionWithOffset(0, 0)
+                        if (preserveScrollOnNextImeOpen) {
+                            layoutManager.scrollToPositionWithOffset(
+                                preservedFirstVisiblePosition,
+                                preservedFirstVisibleTop
+                            )
+                        } else {
+                            layoutManager.scrollToPositionWithOffset(0, 0)
+                        }
                     }
                 }
             }
@@ -972,6 +1054,13 @@ class MainActivity : AppCompatActivity() {
                 override fun onRequestDisallowInterceptTouchEvent(disallowIntercept: Boolean) = Unit
             }
         )
+    }
+
+    private fun saveCurrentQueueScrollPosition() {
+        val firstPos = layoutManager.findFirstVisibleItemPosition()
+        val firstView = layoutManager.findViewByPosition(firstPos)
+        preservedFirstVisiblePosition = if (firstPos == RecyclerView.NO_POSITION) 0 else firstPos
+        preservedFirstVisibleTop = firstView?.top ?: 0
     }
 
     private fun isLockedByOther(): Boolean {

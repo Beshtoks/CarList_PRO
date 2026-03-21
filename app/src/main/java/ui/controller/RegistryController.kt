@@ -85,7 +85,7 @@ class RegistryController(
 
         if (newNumber == null || newNumber !in 1..99) {
             lastCommitFailedRow = position
-            tickRegistry()
+            // ❗ УБРАЛИ tickRegistry()
             return CommitResult.ERROR_CLEAR
         }
 
@@ -93,7 +93,7 @@ class RegistryController(
 
         if (res.isFailure) {
             lastCommitFailedRow = position
-            tickRegistry()
+            // ❗ УБРАЛИ tickRegistry()
             return CommitResult.ERROR_CLEAR
         }
 

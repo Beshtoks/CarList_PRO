@@ -1,6 +1,8 @@
 package com.carlist.pro.ui.adapter
 
 import android.graphics.Color
+import android.os.Handler
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -15,15 +17,12 @@ import com.carlist.pro.ui.drawable.MyCarSpiralDrawable
 
 class QueueAdapter(
     private val transportInfoProvider: ((Int) -> TransportInfo)? = null,
-    private val onCardShortTap: ((item: QueueItem, anchor: View) -> Unit)? = null
+    private val onCardShortTap: ((item: QueueItem, anchor: View) -> Unit)? = null,
+    private val onCardDoubleTap: ((item: QueueItem, anchor: View) -> Unit)? = null
 ) : RecyclerView.Adapter<QueueAdapter.VH>() {
 
     private val items: MutableList<QueueItem> = mutableListOf()
-
-    // 🔴 контроль анимации
     private var lastAnimatedNumber: Int? = null
-
-    // 🔴 запоминаем прошлые статусы
     private val lastStatuses = mutableMapOf<Int, Status>()
 
     fun submitItems(newItems: List<QueueItem>) {
@@ -61,24 +60,22 @@ class QueueAdapter(
             item = item,
             queuePosition = position + 1,
             infoProvider = transportInfoProvider,
-            onCardShortTap = onCardShortTap
+            onCardShortTap = onCardShortTap,
+            onCardDoubleTap = onCardDoubleTap
         )
 
-        // 🔴 АНИМАЦИЯ ТОЛЬКО ДЛЯ БЫВШЕГО JURNIEKS
         if (
             position == 0 &&
             previousStatus == Status.JURNIEKS &&
             item.status == Status.NONE &&
             lastAnimatedNumber != item.number
         ) {
-
             lastAnimatedNumber = item.number
 
             val root = holder.itemView
             val originalItem = item
 
             root.post {
-
                 val states = listOf(
                     Status.JURNIEKS,
                     Status.NONE,
@@ -89,7 +86,6 @@ class QueueAdapter(
 
                 states.forEachIndexed { index, status ->
                     root.postDelayed({
-
                         if (bindingAdapterPositionInvalid(holder)) return@postDelayed
 
                         val tempItem = originalItem.copy(status = status)
@@ -98,9 +94,9 @@ class QueueAdapter(
                             item = tempItem,
                             queuePosition = 1,
                             infoProvider = transportInfoProvider,
-                            onCardShortTap = onCardShortTap
+                            onCardShortTap = onCardShortTap,
+                            onCardDoubleTap = onCardDoubleTap
                         )
-
                     }, index * 80L)
                 }
             }
@@ -118,11 +114,17 @@ class QueueAdapter(
         private val binding: ItemQueueCardBinding
     ) : RecyclerView.ViewHolder(binding.root) {
 
+        private val tapHandler = Handler(Looper.getMainLooper())
+        private var pendingSingleTap: Runnable? = null
+        private var lastTapTime = 0L
+        private val doubleTapTimeoutMs = 230L
+
         fun bind(
             item: QueueItem,
             queuePosition: Int,
             infoProvider: ((Int) -> TransportInfo)?,
-            onCardShortTap: ((item: QueueItem, anchor: View) -> Unit)?
+            onCardShortTap: ((item: QueueItem, anchor: View) -> Unit)?,
+            onCardDoubleTap: ((item: QueueItem, anchor: View) -> Unit)?
         ) {
             val info = infoProvider?.invoke(item.number) ?: TransportInfo()
 
@@ -222,7 +224,23 @@ class QueueAdapter(
             }
 
             binding.cardRoot.setOnClickListener {
-                onCardShortTap?.invoke(item, binding.cardRoot)
+                val now = System.currentTimeMillis()
+
+                val existingSingleTap = pendingSingleTap
+                if (existingSingleTap != null && now - lastTapTime <= doubleTapTimeoutMs) {
+                    tapHandler.removeCallbacks(existingSingleTap)
+                    pendingSingleTap = null
+                    onCardDoubleTap?.invoke(item, binding.cardRoot)
+                } else {
+                    val singleTapRunnable = Runnable {
+                        pendingSingleTap = null
+                        onCardShortTap?.invoke(item, binding.cardRoot)
+                    }
+                    pendingSingleTap = singleTapRunnable
+                    tapHandler.postDelayed(singleTapRunnable, doubleTapTimeoutMs)
+                }
+
+                lastTapTime = now
             }
         }
 
