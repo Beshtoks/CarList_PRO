@@ -50,7 +50,7 @@ class QueueManager {
 
         items.add(QueueItem(number = number, status = Status.NONE))
 
-        autoFixPosition0()
+        normalizeQueueAfterStructuralChange()
 
         val idx = items.indexOfFirst { it.number == number }
         return AddResult.Added(index = idx)
@@ -60,7 +60,7 @@ class QueueManager {
         if (index !in items.indices) return OperationResult.InvalidIndex
 
         items.removeAt(index)
-        autoFixPosition0()
+        normalizeQueueAfterStructuralChange()
 
         return OperationResult.Success
     }
@@ -70,7 +70,7 @@ class QueueManager {
         if (idx == -1) return OperationResult.NumberNotFound
 
         items.removeAt(idx)
-        autoFixPosition0()
+        normalizeQueueAfterStructuralChange()
 
         return OperationResult.Success
     }
@@ -92,7 +92,7 @@ class QueueManager {
         val safeTarget = target.coerceIn(0, items.size)
         items.add(safeTarget, moving)
 
-        autoFixPosition0()
+        normalizeQueueAfterStructuralChange()
 
         return OperationResult.Success
     }
@@ -105,13 +105,13 @@ class QueueManager {
         val current = items[idx]
 
         if (current.status == status) {
-            autoFixPosition0()
+            normalizeQueueAfterStructuralChange()
             return OperationResult.Success
         }
 
         items[idx] = current.copy(status = status)
 
-        autoFixPosition0()
+        normalizeQueueAfterStructuralChange()
 
         return OperationResult.Success
     }
@@ -139,7 +139,7 @@ class QueueManager {
         val current = items[oldIndex]
         items[oldIndex] = current.copy(number = newNumber)
 
-        autoFixPosition0()
+        normalizeQueueAfterStructuralChange()
 
         return OperationResult.Success
     }
@@ -159,7 +159,7 @@ class QueueManager {
             }
         }
 
-        autoFixPosition0()
+        normalizeQueueAfterStructuralChange()
 
         return ValidationResult(
             removedNumbers = removed,
@@ -189,34 +189,43 @@ class QueueManager {
         items.clear()
         items.addAll(restored)
 
-        autoFixPosition0()
+        normalizeQueueAfterStructuralChange()
 
         return OperationResult.Success
     }
 
-    private fun autoFixPosition0() {
-
+    private fun normalizeQueueAfterStructuralChange() {
         if (items.isEmpty()) return
 
-        // 🔹 СНАЧАЛА — фикс JURNIEKS
+        // 1. ЖЁСТКОЕ ПРАВИЛО:
+        // если на позиции 0 оказался JURNIEKS — сразу делаем NONE.
         val first = items[0]
         if (first.status == Status.JURNIEKS) {
             items[0] = first.copy(status = Status.NONE)
         }
 
-        // 🔹 ПЕРЕЧИТЫВАЕМ после изменения
+        // 2. После возможного сброса JURNIEKS заново смотрим первую карточку.
         val updatedFirst = items[0]
 
-        if (!hasAnyActive(excludingIndex = null)) return
-
+        // 3. Если первая карточка уже активная — больше ничего не делаем.
+        // NONE и JURNIEKS активные, но JURNIEKS уже выше был принудительно сброшен в NONE.
         if (!isPassiveStatus(updatedFirst.status)) return
 
+        // 4. Если на первом месте пассивная карточка (SERVICE/OFFICE),
+        // поднимаем наверх первую активную карточку ниже по списку.
         val activeIndex = items.indexOfFirst { it.isActive }
 
         if (activeIndex <= 0) return
 
         val activeItem = items.removeAt(activeIndex)
         items.add(0, activeItem)
+
+        // 5. На всякий случай ещё раз страхуем правило:
+        // если после перестановки на 0 вдруг оказался JURNIEKS — сбрасываем в NONE.
+        val firstAfterMove = items[0]
+        if (firstAfterMove.status == Status.JURNIEKS) {
+            items[0] = firstAfterMove.copy(status = Status.NONE)
+        }
     }
 
     private fun isPassiveStatus(status: Status): Boolean {

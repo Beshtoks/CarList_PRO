@@ -54,7 +54,6 @@ class QueueAdapter(
         val item = items[position]
 
         val previousStatus = lastStatuses[item.number]
-        lastStatuses[item.number] = item.status
 
         holder.bind(
             item = item,
@@ -63,6 +62,8 @@ class QueueAdapter(
             onCardShortTap = onCardShortTap,
             onCardDoubleTap = onCardDoubleTap
         )
+
+        lastStatuses[item.number] = item.status
 
         if (
             position == 0 &&
@@ -225,19 +226,25 @@ class QueueAdapter(
 
             binding.cardRoot.setOnClickListener {
                 val now = System.currentTimeMillis()
-
                 val existingSingleTap = pendingSingleTap
-                if (existingSingleTap != null && now - lastTapTime <= doubleTapTimeoutMs) {
+
+                if (
+                    onCardDoubleTap != null &&
+                    existingSingleTap != null &&
+                    now - lastTapTime <= doubleTapTimeoutMs
+                ) {
                     tapHandler.removeCallbacks(existingSingleTap)
                     pendingSingleTap = null
-                    onCardDoubleTap?.invoke(item, binding.cardRoot)
-                } else {
+                    onCardDoubleTap.invoke(item, binding.cardRoot)
+                } else if (onCardDoubleTap != null) {
                     val singleTapRunnable = Runnable {
                         pendingSingleTap = null
                         onCardShortTap?.invoke(item, binding.cardRoot)
                     }
                     pendingSingleTap = singleTapRunnable
                     tapHandler.postDelayed(singleTapRunnable, doubleTapTimeoutMs)
+                } else {
+                    onCardShortTap?.invoke(item, binding.cardRoot)
                 }
 
                 lastTapTime = now
