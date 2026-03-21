@@ -91,6 +91,7 @@ class MainActivity : AppCompatActivity() {
     private var preserveScrollOnNextImeOpen = false
     private var preservedFirstVisiblePosition = 0
     private var preservedFirstVisibleTop = 0
+    private var suppressReplaceCancelOnNextKeyboardHide = false
 
     private val recordAudioPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -201,6 +202,11 @@ class MainActivity : AppCompatActivity() {
                     blockedActionFeedback()
                     return@QueueAdapter
                 }
+
+                if (replacingNumber != null && replacingNumber != item.number) {
+                    cancelReplacingMode()
+                }
+
                 showStatusMenu(anchor, item)
             },
             onCardDoubleTap = { item, _ ->
@@ -212,6 +218,7 @@ class MainActivity : AppCompatActivity() {
                 saveCurrentQueueScrollPosition()
                 preserveScrollOnNextImeOpen = true
                 replacingNumber = item.number
+                suppressReplaceCancelOnNextKeyboardHide = false
 
                 binding.numberInput.setText(item.number.toString())
                 binding.numberInput.requestFocus()
@@ -395,10 +402,16 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 releasedInsideCounterPanel -> {
+                    if (replacingNumber != null) {
+                        cancelReplacingMode()
+                    }
                     inputTechController.onCounterPanelReleased()
                 }
 
                 else -> {
+                    if (replacingNumber != null) {
+                        cancelReplacingMode()
+                    }
                     inputTechController.onOutsideReleased(imeVisibleNow)
                 }
             }
@@ -768,6 +781,7 @@ class MainActivity : AppCompatActivity() {
                 QueueManager.OperationResult.Success -> {
                     replacingNumber = null
                     preserveScrollOnNextImeOpen = false
+                    suppressReplaceCancelOnNextKeyboardHide = true
                     binding.numberInput.setText("")
                     uiSoundManager.playOk()
                     feedback.ok()
@@ -961,10 +975,19 @@ class MainActivity : AppCompatActivity() {
 
         ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { _, insets ->
 
+            val wasImeVisible = imeVisibleNow
             imeVisibleNow = insets.isVisible(WindowInsetsCompat.Type.ime())
 
             if (!imeVisibleNow) {
                 inputTechController.onKeyboardHidden()
+
+                if (replacingNumber != null) {
+                    if (suppressReplaceCancelOnNextKeyboardHide) {
+                        suppressReplaceCancelOnNextKeyboardHide = false
+                    } else if (!isTechMenuOpen) {
+                        cancelReplacingMode()
+                    }
+                }
             }
 
             applyInputVisualState(imeVisibleNow)
@@ -987,7 +1010,7 @@ class MainActivity : AppCompatActivity() {
                                 preservedFirstVisiblePosition,
                                 preservedFirstVisibleTop
                             )
-                        } else {
+                        } else if (wasImeVisible) {
                             layoutManager.scrollToPositionWithOffset(0, 0)
                         }
                     }
@@ -1061,6 +1084,19 @@ class MainActivity : AppCompatActivity() {
         val firstView = layoutManager.findViewByPosition(firstPos)
         preservedFirstVisiblePosition = if (firstPos == RecyclerView.NO_POSITION) 0 else firstPos
         preservedFirstVisibleTop = firstView?.top ?: 0
+    }
+
+    private fun cancelReplacingMode() {
+        replacingNumber = null
+        preserveScrollOnNextImeOpen = false
+        suppressReplaceCancelOnNextKeyboardHide = false
+        binding.numberInput.setText("")
+
+        val imm = getSystemService(InputMethodManager::class.java)
+        imm.hideSoftInputFromWindow(binding.numberInput.windowToken, 0)
+
+        inputUiController.lockManualInput(binding.numberInput)
+        applyInputVisualState(false)
     }
 
     private fun isLockedByOther(): Boolean {
