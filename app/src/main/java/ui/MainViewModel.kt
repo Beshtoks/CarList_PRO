@@ -62,26 +62,44 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             syncRepository = syncRepository,
             registryStore = registryStore,
             queueSnapshotProvider = { queueManager.snapshot() },
-            onApplyRemoteQueue = { remoteQueue -> queueStateCoordinator.applyRemoteQueue(remoteQueue) },
-            onSyncStateChanged = { state -> _syncState.postValue(state) },
-            onSyncPanelTextChanged = { text -> _syncPanelText.postValue(text) },
-            onSyncMessage = { message -> _syncMessage.postValue(message) },
-            onSyncOfferChanged = { offer -> _syncOffer.postValue(offer) },
-            onNetworkAlertVisible = { visible -> _networkAlertVisible.postValue(visible) }
+            onApplyRemoteQueue = { remoteQueue ->
+                queueStateCoordinator.applyRemoteQueue(remoteQueue)
+            },
+            onSyncStateChanged = { state ->
+                _syncState.postValue(state)
+            },
+            onSyncPanelTextChanged = { text ->
+                _syncPanelText.postValue(text)
+            },
+            onSyncMessage = { message ->
+                _syncMessage.postValue(message)
+            },
+            onSyncOfferChanged = { offer ->
+                _syncOffer.postValue(offer)
+            },
+            onNetworkAlertVisible = { visible ->
+                _networkAlertVisible.postValue(visible)
+            }
         )
 
         queueStateCoordinator = QueueStateCoordinator(
             queueManager = queueManager,
             queueStateStore = queueStateStore,
             registryStore = registryStore,
-            onQueuePublished = { snapshot -> _queueItems.value = snapshot },
-            onPushSnapshotRequested = { snapshot -> syncCoordinator.onLocalSnapshotChanged(snapshot) }
+            onQueuePublished = { snapshot ->
+                _queueItems.value = snapshot
+            },
+            onPushSnapshotRequested = { snapshot ->
+                syncCoordinator.onLocalSnapshotChanged(snapshot)
+            }
         )
 
         registryController = RegistryController(
             registryStore = registryStore,
             queueManager = queueManager,
-            publishSnapshot = { pushToServer -> queueStateCoordinator.publishSnapshot(pushToServer) },
+            publishSnapshot = { pushToServer ->
+                queueStateCoordinator.publishSnapshot(pushToServer)
+            },
             tickRegistry = { tickRegistry() },
             refreshSyncPanelState = { syncCoordinator.refreshPanelState() }
         )
@@ -91,7 +109,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             registryStore = registryStore,
             isQueueEditingBlocked = { syncCoordinator.isQueueEditingBlocked() },
             onBlockedMessage = { message -> _syncMessage.postValue(message) },
-            publishSnapshot = { pushToServer -> queueStateCoordinator.publishSnapshot(pushToServer) }
+            publishSnapshot = { pushToServer ->
+                queueStateCoordinator.publishSnapshot(pushToServer)
+            }
         )
 
         queueStateCoordinator.initializeFromStorage()
@@ -183,6 +203,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun onServerPanelClick() {
         syncCoordinator.onServerPanelClick()
+    }
+
+    fun onServerPanelDoubleTapUpload() {
+        syncCoordinator.onServerPanelDoubleTapUpload()
+    }
+
+    fun canUploadCurrentQueue(): Boolean {
+        return syncCoordinator.canUploadCurrentQueue()
+    }
+
+    fun getCurrentQueueSize(): Int {
+        return queueManager.snapshot().size
+    }
+
+    fun hasMyCarConfigured(): Boolean {
+        return registryStore.getMyCar() != null
     }
 
     fun acceptSyncOffer() {

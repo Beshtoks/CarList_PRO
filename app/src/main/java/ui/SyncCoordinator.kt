@@ -28,12 +28,12 @@ class SyncCoordinator(
     private var syncEnabled = false
     private var pendingOfferRequest = false
     private var latestRemoteSnapshot: RemoteQueueSnapshot? = null
-
     private var networkAlertActive = false
     private var shouldRestoreSyncAfterNetworkReturn = false
     private var heartbeatMisses = 0
     private var lastKnownOnline: Boolean? = null
     private var currentOffer: SyncOffer? = null
+    private var oneShotUploadInProgress = false
 
     private val repositoryCallback = object : FirebaseSyncRepository.Callback {
 
@@ -138,9 +138,11 @@ class SyncCoordinator(
     private val networkStatePollRunnable = object : Runnable {
         override fun run() {
             val onlineNow = networkMonitor.isCurrentlyOnline()
+
             if (lastKnownOnline == null || lastKnownOnline != onlineNow) {
                 handleNetworkChanged(onlineNow)
             }
+
             mainHandler.postDelayed(this, NETWORK_POLL_INTERVAL_MS)
         }
     }
@@ -179,7 +181,7 @@ class SyncCoordinator(
 
         if (registryStore.getMyCar() == null) {
             setSyncState(SyncState.NeedMyCar)
-            onSyncMessage("Для синхронизации сначала укажи личный номер в категории MY CAR.")
+            onSyncMessage("SET MY CAR FIRST FOR SYNC")
             return
         }
 
@@ -198,6 +200,71 @@ class SyncCoordinator(
         if (!syncEnabled) return
         pendingOfferRequest = true
         syncRepository.requestLatestSnapshot()
+    }
+
+    fun onServerPanelDoubleTapUpload() {
+        if (!canUploadCurrentQueue()) return
+
+        if (syncEnabled) {
+            syncRepository.pushSnapshot(
+                queue = queueSnapshotProvider(),
+                authorNumber = registryStore.getMyCar()
+            )
+            return
+        }
+
+        if (!networkMonitor.isCurrentlyOnline()) {
+            networkAlertActive = true
+            onNetworkAlertVisible(true)
+            setSyncState(SyncState.NoNetwork)
+            return
+        }
+
+        oneShotUploadInProgress = true
+        syncEnabled = true
+        pendingOfferRequest = false
+        setCurrentOffer(null)
+        latestRemoteSnapshot = null
+        stopSyncCountdown()
+        setSyncState(SyncState.Connecting)
+
+        syncRepository.start(repositoryCallback)
+
+        mainHandler.postDelayed({
+            val queue = queueSnapshotProvider()
+            val myCar = registryStore.getMyCar()
+
+            if (!oneShotUploadInProgress) return@postDelayed
+
+            syncRepository.pushSnapshot(
+                queue = queue,
+                authorNumber = myCar
+            )
+
+            mainHandler.postDelayed({
+                if (!oneShotUploadInProgress) return@postDelayed
+                oneShotUploadInProgress = false
+                syncEnabled = false
+                syncRepository.stop()
+                setSyncState(SyncState.Off)
+            }, ONE_SHOT_UPLOAD_FINISH_DELAY_MS)
+        }, ONE_SHOT_UPLOAD_START_DELAY_MS)
+    }
+
+    fun canUploadCurrentQueue(): Boolean {
+        val queue = queueSnapshotProvider()
+
+        if (queue.isEmpty()) {
+            onSyncMessage("EMPTY LIST - UPLOAD NOT POSSIBLE")
+            return false
+        }
+
+        if (registryStore.getMyCar() == null) {
+            onSyncMessage("SET MY CAR FIRST")
+            return false
+        }
+
+        return true
     }
 
     fun acceptSyncOffer() {
@@ -299,6 +366,7 @@ class SyncCoordinator(
         pendingOfferRequest = false
         latestRemoteSnapshot = null
         heartbeatMisses = 0
+        oneShotUploadInProgress = false
         stopSyncCountdown()
         stopSyncHeartbeat()
         setCurrentOffer(null)
@@ -325,7 +393,6 @@ class SyncCoordinator(
         heartbeatMisses = 0
         stopSyncCountdown()
         startSyncHeartbeat()
-
         setSyncState(SyncState.Connecting)
         syncRepository.start(repositoryCallback)
     }
@@ -355,6 +422,7 @@ class SyncCoordinator(
         pendingOfferRequest = false
         latestRemoteSnapshot = null
         heartbeatMisses = 0
+        oneShotUploadInProgress = false
         stopSyncCountdown()
         stopSyncHeartbeat()
         syncRepository.stop()
@@ -422,9 +490,12 @@ class SyncCoordinator(
 
     private fun shouldKeepSyncCountdownRunning(): Boolean {
         if (!syncEnabled) return false
+
         val snapshot = latestRemoteSnapshot ?: return false
         val now = System.currentTimeMillis()
-        return !snapshot.lockOwnerDeviceId.isNullOrBlank() && snapshot.lockUntilMs > now
+
+        return !snapshot.lockOwnerDeviceId.isNullOrBlank() &&
+                snapshot.lockUntilMs > now
     }
 
     private fun setSyncState(state: SyncState) {
@@ -437,5 +508,7 @@ class SyncCoordinator(
         private const val HEARTBEAT_INTERVAL_MS = 3_000L
         private const val HEARTBEAT_FAIL_LIMIT = 1
         private const val NETWORK_POLL_INTERVAL_MS = 1_000L
+        private const val ONE_SHOT_UPLOAD_START_DELAY_MS = 400L
+        private const val ONE_SHOT_UPLOAD_FINISH_DELAY_MS = 900L
     }
 }

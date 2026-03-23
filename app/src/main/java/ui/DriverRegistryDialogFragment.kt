@@ -16,6 +16,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.carlist.pro.databinding.DialogDriverRegistryBinding
 import com.carlist.pro.ui.MainActivity
 import com.carlist.pro.ui.MainViewModel
+import com.carlist.pro.ui.UiSoundManager
+import com.carlist.pro.ui.adapter.CommitResult
 import com.carlist.pro.ui.adapter.DriverRegistryAdapter
 import kotlin.math.roundToInt
 
@@ -26,6 +28,7 @@ class DriverRegistryDialogFragment : DialogFragment() {
 
     private lateinit var adapter: DriverRegistryAdapter
     private lateinit var viewModel: MainViewModel
+    private lateinit var uiSoundManager: UiSoundManager
 
     private var suppressNextRegistryAutoFocus = false
 
@@ -43,18 +46,26 @@ class DriverRegistryDialogFragment : DialogFragment() {
 
         val main = activity as MainActivity
         viewModel = main.getMainViewModel()
+        uiSoundManager = UiSoundManager(requireContext())
 
         ensureDefaultRegistryLoaded()
 
         adapter = DriverRegistryAdapter(
             getItems = { viewModel.getRegistryRows() },
-            onRowActivated = { pos -> viewModel.setRegistryActiveRow(pos) },
+            onRowActivated = { pos ->
+                viewModel.setRegistryActiveRow(pos)
+            },
             onNumberCommitted = { pos, old, txt ->
-                viewModel.commitRegistryNumber(pos, old, txt)
+                val result = viewModel.commitRegistryNumber(pos, old, txt)
+                if (result == CommitResult.OK) {
+                    uiSoundManager.playOk()
+                }
+                result
             },
             onCategoryAction = { number, action ->
                 suppressNextRegistryAutoFocus = true
                 viewModel.onRegistryCategoryAction(number, action)
+                uiSoundManager.playOk()
             }
         )
 
@@ -62,9 +73,14 @@ class DriverRegistryDialogFragment : DialogFragment() {
         binding.registryRecycler.adapter = adapter
 
         binding.btnOk.setOnClickListener {
-            commitActiveFieldIfVisible()
+            val committed = commitActiveFieldIfVisible()
             viewModel.sortRegistryNumbersForClose()
             adapter.refresh()
+
+            if (committed) {
+                uiSoundManager.playOk()
+            }
+
             dismissAllowingStateLoss()
         }
 
@@ -122,33 +138,44 @@ class DriverRegistryDialogFragment : DialogFragment() {
 
         DEFAULT_REGISTRY_NUMBERS.forEachIndexed { index, number ->
             val oldNumber = rows.getOrNull(index)?.number
-            viewModel.commitRegistryNumber(
+            val result = viewModel.commitRegistryNumber(
                 index,
                 oldNumber,
                 number.toString()
             )
+            if (result == CommitResult.OK) {
+                uiSoundManager.playOk()
+            }
         }
 
         viewModel.setRegistryActiveRow(0)
     }
 
-    private fun commitActiveFieldIfVisible() {
+    private fun commitActiveFieldIfVisible(): Boolean {
         val activePosition = viewModel.getRegistryActiveRow().coerceAtLeast(0)
         val rows = viewModel.getRegistryRows()
-        val row = rows.getOrNull(activePosition) ?: return
+        val row = rows.getOrNull(activePosition) ?: return false
 
         val holder =
             binding.registryRecycler.findViewHolderForAdapterPosition(activePosition)
                     as? DriverRegistryAdapter.VH
-                ?: return
+                ?: return false
 
         val text = holder.getEditText().text?.toString().orEmpty()
 
-        viewModel.commitRegistryNumber(
+        val oldNumber = row.number
+        val newNumber = text.toIntOrNull()
+
+        // 🔴 если ничего не изменилось — выходим без звука
+        if (oldNumber == newNumber) return false
+
+        val result = viewModel.commitRegistryNumber(
             activePosition,
-            row.number,
+            oldNumber,
             text
         )
+
+        return result == CommitResult.OK
     }
 
     private fun focusActiveFieldAndShowKeyboard() {
@@ -193,6 +220,9 @@ class DriverRegistryDialogFragment : DialogFragment() {
     }
 
     override fun onDestroyView() {
+        if (::uiSoundManager.isInitialized) {
+            uiSoundManager.release()
+        }
         super.onDestroyView()
         _binding = null
     }

@@ -73,12 +73,9 @@ class MainActivity : AppCompatActivity() {
     private var imeVisibleNow = false
     private var autoCopyEnabled = false
     private var isDragging = false
-
     private var isTechMenuOpen = false
-
     private var lastQueueSize = 0
     private var pendingScrollToBottom = false
-
     private var lastAutoCopiedText = ""
     private var suppressNextQueueAutoScroll = false
     private var backgroundServiceStarted = false
@@ -86,7 +83,6 @@ class MainActivity : AppCompatActivity() {
     private var currentSyncState: SyncState = SyncState.Off
     private var blockedFeedbackAtMs = 0L
     private var blockedBlinkToken = 0
-
     private var replacingNumber: Int? = null
     private var preserveScrollOnNextImeOpen = false
     private var preservedFirstVisiblePosition = 0
@@ -99,12 +95,15 @@ class MainActivity : AppCompatActivity() {
         }
 
     private val postNotificationsPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-            ensureBackgroundMonitorServiceStarted()
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                ensureBackgroundMonitorServiceStarted()
+            } else {
+                backgroundServiceStarted = false
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-
         WindowCompat.setDecorFitsSystemWindows(window, true)
 
         window.setSoftInputMode(
@@ -133,6 +132,12 @@ class MainActivity : AppCompatActivity() {
             },
             onNetworkAlertAcknowledged = {
                 viewModel.onNetworkAlertAcknowledged()
+            },
+            onConfirmUpload = {
+                viewModel.onServerPanelDoubleTapUpload()
+            },
+            onCancelUpload = {
+                // nothing
             }
         )
 
@@ -242,7 +247,6 @@ class MainActivity : AppCompatActivity() {
         setupServerPanel()
 
         viewModel.queueItems.observe(this) { list ->
-
             val oldSize = lastQueueSize
             val newSize = list.size
             pendingScrollToBottom = newSize > oldSize
@@ -256,11 +260,9 @@ class MainActivity : AppCompatActivity() {
                     suppressNextQueueAutoScroll = false
                 } else {
                     binding.queueRecycler.post {
-                        when {
-                            !isTechMenuOpen && pendingScrollToBottom && list.isNotEmpty() -> {
-                                val last = list.lastIndex
-                                layoutManager.scrollToPositionWithOffset(last, 0)
-                            }
+                        if (!isTechMenuOpen && pendingScrollToBottom && list.isNotEmpty()) {
+                            val last = list.lastIndex
+                            layoutManager.scrollToPositionWithOffset(last, 0)
                         }
                     }
                 }
@@ -319,14 +321,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.numberInput.setOnEditorActionListener { _, actionId, event ->
-
             val isEnter =
                 actionId == EditorInfo.IME_ACTION_DONE ||
                         (event?.keyCode == KeyEvent.KEYCODE_ENTER &&
                                 event.action == KeyEvent.ACTION_DOWN)
 
             if (!isEnter) return@setOnEditorActionListener false
-
             if (isTechMenuOpen) return@setOnEditorActionListener true
             if (!inputUiController.isManualInputMode()) return@setOnEditorActionListener true
 
@@ -387,7 +387,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-
         if (!isTechMenuOpen && ev.actionMasked == MotionEvent.ACTION_UP) {
             val releasedInsideInputPanel = isInsideInputPanel(ev.rawX, ev.rawY)
             val releasedInsideCounterPanel = isInsideCounterPanel(ev.rawX, ev.rawY)
@@ -454,6 +453,18 @@ class MainActivity : AppCompatActivity() {
     private fun ensureBackgroundMonitorServiceStarted() {
         if (backgroundServiceStarted) return
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!granted) {
+                backgroundServiceStarted = false
+                return
+            }
+        }
+
         val intent = Intent(this, SyncForegroundService::class.java).apply {
             action = SyncForegroundService.ACTION_START_MONITORING
         }
@@ -463,17 +474,45 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupServerPanel() {
-        binding.infoPanel.setOnClickListener {
-            if (isLockedByOther()) {
-                blockedActionFeedback()
-                return@setOnClickListener
-            }
-            viewModel.onServerPanelClick()
-        }
+        val gestureDetector = GestureDetector(
+            this,
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                    if (isLockedByOther()) {
+                        blockedActionFeedback()
+                        return true
+                    }
 
-        binding.infoPanel.setOnLongClickListener {
-            pendingServerToggleSound = true
-            viewModel.onServerPanelLongPress()
+                    viewModel.onServerPanelClick()
+                    return true
+                }
+
+                override fun onDoubleTap(e: MotionEvent): Boolean {
+                    if (isLockedByOther()) {
+                        blockedActionFeedback()
+                        return true
+                    }
+
+                    if (!viewModel.canUploadCurrentQueue()) {
+                        return true
+                    }
+
+                    syncUiController.showUploadConfirmDialog(
+                        currentListSize = viewModel.getCurrentQueueSize(),
+                        secondsRemaining = 15
+                    )
+                    return true
+                }
+
+                override fun onLongPress(e: MotionEvent) {
+                    pendingServerToggleSound = true
+                    viewModel.onServerPanelLongPress()
+                }
+            }
+        )
+
+        binding.infoPanel.setOnTouchListener { _, event ->
+            gestureDetector.onTouchEvent(event)
             true
         }
     }
@@ -523,21 +562,17 @@ class MainActivity : AppCompatActivity() {
         val numberColor = popupBinding.actionStandard.currentTextColor
 
         when (item.status) {
-            Status.NONE -> {
-                popupBinding.actionStandard.text = buildStatusMenuLine("STANDARD", item.number, numberColor)
-            }
+            Status.NONE -> popupBinding.actionStandard.text =
+                buildStatusMenuLine("STANDARD", item.number, numberColor)
 
-            Status.SERVICE -> {
-                popupBinding.actionService.text = buildStatusMenuLine("SERVICE", item.number, numberColor)
-            }
+            Status.SERVICE -> popupBinding.actionService.text =
+                buildStatusMenuLine("SERVICE", item.number, numberColor)
 
-            Status.OFFICE -> {
-                popupBinding.actionOffice.text = buildStatusMenuLine("OFFICE", item.number, numberColor)
-            }
+            Status.OFFICE -> popupBinding.actionOffice.text =
+                buildStatusMenuLine("OFFICE", item.number, numberColor)
 
-            Status.JURNIEKS -> {
-                popupBinding.actionJurnieks.text = buildStatusMenuLine("JURNIEKS", item.number, numberColor)
-            }
+            Status.JURNIEKS -> popupBinding.actionJurnieks.text =
+                buildStatusMenuLine("JURNIEKS", item.number, numberColor)
         }
 
         val popup = PopupWindow(
@@ -598,8 +633,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         popup.contentView.measure(
-            View.MeasureSpec.makeMeasureSpec(resources.displayMetrics.widthPixels, View.MeasureSpec.AT_MOST),
-            View.MeasureSpec.makeMeasureSpec(resources.displayMetrics.heightPixels, View.MeasureSpec.AT_MOST)
+            View.MeasureSpec.makeMeasureSpec(
+                resources.displayMetrics.widthPixels,
+                View.MeasureSpec.AT_MOST
+            ),
+            View.MeasureSpec.makeMeasureSpec(
+                resources.displayMetrics.heightPixels,
+                View.MeasureSpec.AT_MOST
+            )
         )
 
         val popupWidth = popup.contentView.measuredWidth
@@ -670,7 +711,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupButtons() {
-
         updateAutocopyButtonText()
 
         binding.btnAutocopy.setOnClickListener {
@@ -724,16 +764,11 @@ class MainActivity : AppCompatActivity() {
                 .setNegativeButton("NO", null)
                 .show()
 
-            dialog.window?.setBackgroundDrawable(
-                ColorDrawable(0xFF2A0033.toInt())
-            )
-
+            dialog.window?.setBackgroundDrawable(ColorDrawable(0xFF2A0033.toInt()))
             dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)
                 ?.setTextColor(Color.WHITE)
-
             dialog.findViewById<TextView>(android.R.id.message)
                 ?.setTextColor(Color.WHITE)
-
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(0xFFFF8A8A.toInt())
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(0xFFFFFFFF.toInt())
 
@@ -764,7 +799,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleManualSubmit() {
-
         if (isLockedByOther()) {
             blockedActionFeedback()
             return
@@ -894,7 +928,6 @@ class MainActivity : AppCompatActivity() {
                 (24 * density).toInt(),
                 (18 * density).toInt()
             )
-
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 18f * density
@@ -972,9 +1005,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupImeHandling() {
-
         ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { _, insets ->
-
             val wasImeVisible = imeVisibleNow
             imeVisibleNow = insets.isVisible(WindowInsetsCompat.Type.ime())
 
@@ -1027,9 +1058,7 @@ class MainActivity : AppCompatActivity() {
 
             when (event.actionMasked) {
                 MotionEvent.ACTION_UP,
-                MotionEvent.ACTION_CANCEL -> {
-                    blockedActionFeedback()
-                }
+                MotionEvent.ACTION_CANCEL -> blockedActionFeedback()
             }
             true
         }
@@ -1052,9 +1081,7 @@ class MainActivity : AppCompatActivity() {
                 override fun onLongPress(e: MotionEvent) {
                     if (!isLockedByOther()) return
                     val child = binding.queueRecycler.findChildViewUnder(e.x, e.y) ?: return
-                    if (child != null) {
-                        blockedActionFeedback()
-                    }
+                    blockedActionFeedback()
                 }
             }
         )
@@ -1107,7 +1134,6 @@ class MainActivity : AppCompatActivity() {
         val now = System.currentTimeMillis()
         if (now - blockedFeedbackAtMs < 180L) return
         blockedFeedbackAtMs = now
-
         feedback.ok()
         blinkInfoTextThreeTimes()
     }

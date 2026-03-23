@@ -1,11 +1,13 @@
 package com.carlist.pro.sync
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -13,6 +15,7 @@ import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.carlist.pro.R
 import com.carlist.pro.data.sync.FirebaseSyncRepository
 import com.carlist.pro.data.sync.NetworkMonitor
@@ -76,7 +79,6 @@ class SyncForegroundService : Service() {
     private val vibrationLoopRunnable = object : Runnable {
         override fun run() {
             if (destroyed || !currentlyOffline || alertAcknowledged) return
-
             vibrateNetworkPulse()
             handler.postDelayed(this, VIBRATION_CYCLE_MS)
         }
@@ -85,16 +87,45 @@ class SyncForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!granted) {
+                stopSelf()
+                return
+            }
+        }
+
         notificationManager = getSystemService(NotificationManager::class.java)
         networkMonitor = NetworkMonitor(applicationContext)
         syncRepository = FirebaseSyncRepository(applicationContext)
 
         createNotificationChannels()
-        startForeground(FOREGROUND_NOTIFICATION_ID, buildForegroundNotification(offline = false))
+
+        startForeground(
+            FOREGROUND_NOTIFICATION_ID,
+            buildForegroundNotification(offline = false)
+        )
+
         handler.post(monitorRunnable)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!granted) {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+        }
+
         when (intent?.action) {
             ACTION_SILENCE_ALERT -> {
                 alertAcknowledged = true
@@ -117,7 +148,11 @@ class SyncForegroundService : Service() {
         handler.removeCallbacks(monitorRunnable)
         handler.removeCallbacks(vibrationLoopRunnable)
         stopVibration()
-        notificationManager.cancel(ALERT_NOTIFICATION_ID)
+
+        if (::notificationManager.isInitialized) {
+            notificationManager.cancel(ALERT_NOTIFICATION_ID)
+        }
+
         super.onDestroy()
     }
 
@@ -157,6 +192,8 @@ class SyncForegroundService : Service() {
     }
 
     private fun updateForegroundNotification() {
+        if (!::notificationManager.isInitialized) return
+
         notificationManager.notify(
             FOREGROUND_NOTIFICATION_ID,
             buildForegroundNotification(offline = currentlyOffline)
@@ -199,6 +236,8 @@ class SyncForegroundService : Service() {
     }
 
     private fun showAlertNotification() {
+        if (!::notificationManager.isInitialized) return
+
         val openAppIntent = PendingIntent.getActivity(
             this,
             101,
@@ -256,13 +295,8 @@ class SyncForegroundService : Service() {
         } ?: return
 
         val pattern = longArrayOf(
-            0L,
-            110L, 70L,
-            110L, 70L,
-            110L, 70L,
-            110L, 70L,
-            110L, 70L,
-            110L
+            0L, 110L, 70L, 110L, 70L, 110L,
+            70L, 110L, 70L, 110L, 70L, 110L
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -324,7 +358,6 @@ class SyncForegroundService : Service() {
 
         private const val MONITOR_INTERVAL_MS = 1_000L
         private const val PING_INTERVAL_MS = 3_000L
-
         private const val VIBRATION_CYCLE_MS = 3_000L
     }
 }

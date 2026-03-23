@@ -14,11 +14,14 @@ import android.os.SystemClock
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog as AppCompatAlertDialog
 import androidx.core.content.ContextCompat
+import com.carlist.pro.R
 import com.carlist.pro.databinding.DialogSyncOfferBinding
 import com.carlist.pro.domain.sync.SyncOffer
 import com.carlist.pro.sync.SyncForegroundService
@@ -27,8 +30,15 @@ class SyncUiController(
     private val context: Context,
     private val onAcceptSyncOffer: () -> Unit,
     private val onDeclineSyncOffer: () -> Unit,
-    private val onNetworkAlertAcknowledged: () -> Unit
+    private val onNetworkAlertAcknowledged: () -> Unit,
+    private val onConfirmUpload: () -> Unit = {},
+    private val onCancelUpload: () -> Unit = {}
 ) {
+
+    enum class SyncDialogMode {
+        DOWNLOAD,
+        UPLOAD
+    }
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -36,9 +46,9 @@ class SyncUiController(
     private var syncOfferBinding: DialogSyncOfferBinding? = null
     private var syncOfferHandled = false
     private var currentSyncOffer: SyncOffer? = null
-
     private var syncOfferInitialSeconds = 0
     private var syncOfferStartElapsedMs = 0L
+    private var currentDialogMode: SyncDialogMode = SyncDialogMode.DOWNLOAD
 
     private val syncOfferCountdownRunnable = object : Runnable {
         override fun run() {
@@ -47,11 +57,13 @@ class SyncUiController(
             if (!dialog.isShowing) return
 
             val remaining = getRemainingSyncOfferSeconds()
-
             binding.tvSecondsLeft.text = "$remaining sec"
 
             if (remaining <= 0) {
-                dismissSyncOfferDialog(accepted = false)
+                when (currentDialogMode) {
+                    SyncDialogMode.DOWNLOAD -> dismissSyncOfferDialog(accepted = false)
+                    SyncDialogMode.UPLOAD -> dismissUploadDialog(accepted = false)
+                }
                 return
             }
 
@@ -63,6 +75,7 @@ class SyncUiController(
     private var networkAlertAcknowledged = false
 
     fun showSyncOfferDialog(offer: SyncOffer) {
+        currentDialogMode = SyncDialogMode.DOWNLOAD
         currentSyncOffer = offer
         syncOfferHandled = false
         syncOfferInitialSeconds = offer.secondsRemaining.coerceAtLeast(0)
@@ -72,12 +85,38 @@ class SyncUiController(
             createSyncOfferDialog()
         }
 
-        bindSyncOffer(offer)
+        bindDownloadOffer(offer)
         restartSyncOfferCountdown()
 
         if (syncOfferDialog?.isShowing != true) {
             syncOfferDialog?.show()
+            syncOfferDialog?.window?.let { window ->
+                window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+                val width = (context.resources.displayMetrics.widthPixels * 0.88f).toInt()
+                window.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+        }
+    }
 
+    fun showUploadConfirmDialog(
+        currentListSize: Int,
+        secondsRemaining: Int = 15
+    ) {
+        currentDialogMode = SyncDialogMode.UPLOAD
+        currentSyncOffer = null
+        syncOfferHandled = false
+        syncOfferInitialSeconds = secondsRemaining.coerceAtLeast(0)
+        syncOfferStartElapsedMs = SystemClock.elapsedRealtime()
+
+        if (syncOfferDialog == null || syncOfferBinding == null) {
+            createSyncOfferDialog()
+        }
+
+        bindUploadOffer(currentListSize)
+        restartSyncOfferCountdown()
+
+        if (syncOfferDialog?.isShowing != true) {
+            syncOfferDialog?.show()
             syncOfferDialog?.window?.let { window ->
                 window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
                 val width = (context.resources.displayMetrics.widthPixels * 0.88f).toInt()
@@ -178,6 +217,7 @@ class SyncUiController(
         syncOfferDialog?.dismiss()
         syncOfferDialog = null
         syncOfferBinding = null
+
         networkAlertDialog?.dismiss()
         networkAlertDialog = null
     }
@@ -187,11 +227,17 @@ class SyncUiController(
         syncOfferBinding = binding
 
         binding.btnNo.setOnClickListener {
-            dismissSyncOfferDialog(accepted = false)
+            when (currentDialogMode) {
+                SyncDialogMode.DOWNLOAD -> dismissSyncOfferDialog(accepted = false)
+                SyncDialogMode.UPLOAD -> dismissUploadDialog(accepted = false)
+            }
         }
 
         binding.btnDownload.setOnClickListener {
-            dismissSyncOfferDialog(accepted = true)
+            when (currentDialogMode) {
+                SyncDialogMode.DOWNLOAD -> dismissSyncOfferDialog(accepted = true)
+                SyncDialogMode.UPLOAD -> dismissUploadDialog(accepted = true)
+            }
         }
 
         val dialog = AppCompatAlertDialog.Builder(context)
@@ -203,30 +249,72 @@ class SyncUiController(
         dialog.setOnDismissListener {
             stopSyncOfferCountdown()
 
-            if (!syncOfferHandled && currentSyncOffer != null) {
+            if (!syncOfferHandled) {
                 syncOfferHandled = true
-                currentSyncOffer = null
-                onDeclineSyncOffer()
+                when (currentDialogMode) {
+                    SyncDialogMode.DOWNLOAD -> {
+                        if (currentSyncOffer != null) {
+                            currentSyncOffer = null
+                            onDeclineSyncOffer()
+                        }
+                    }
+                    SyncDialogMode.UPLOAD -> {
+                        onCancelUpload()
+                    }
+                }
             }
         }
 
         syncOfferDialog = dialog
     }
 
-    private fun bindSyncOffer(offer: SyncOffer) {
+    private fun bindDownloadOffer(offer: SyncOffer) {
         val binding = syncOfferBinding ?: return
 
         val authorText = offer.snapshot.authorNumber?.let { "#$it" } ?: "#--"
         val updatedAtMs = offer.snapshot.updatedAtMs
+
         val minutesAgo = if (updatedAtMs > 0L) {
             ((System.currentTimeMillis() - updatedAtMs).coerceAtLeast(0L) / 60_000L).toInt()
         } else {
             0
         }
 
+        binding.ivSyncIcon.setImageResource(R.drawable.ic_sync_offer_cloud)
+        binding.tvTitle.text = "SYNC OFFER"
+        binding.tvSubtitle.text = "List uploaded"
+        binding.tvByLabel.text = "BY"
         binding.tvByValue.text = authorText
         binding.tvMinutesValue.text = minutesAgo.toString()
+        binding.tvMinutesLabel.text = "MINUTES AGO"
+        binding.tvQuestion.text = "Download the list?"
+        binding.tvSecondsLeft.visibility = View.VISIBLE
         binding.tvSecondsLeft.text = "${offer.secondsRemaining.coerceAtLeast(0)} sec"
+        binding.btnNo.text = "NO"
+        binding.btnDownload.text = "YES"
+
+        binding.root.post {
+            applyGradientText(binding.tvTitle, 0xFF86D8FF.toInt(), 0xFFE56CFF.toInt())
+            applyGradientText(binding.tvMinutesValue, 0xFFAAC8FF.toInt(), 0xFFE783FF.toInt())
+            applyGradientText(binding.tvByValue, 0xFF8ED7FF.toInt(), 0xFFE783FF.toInt())
+        }
+    }
+
+    private fun bindUploadOffer(currentListSize: Int) {
+        val binding = syncOfferBinding ?: return
+
+        binding.ivSyncIcon.setImageResource(R.drawable.ic_sync_offer_cloud_up)
+        binding.tvTitle.text = "SYNC UPLOAD"
+        binding.tvSubtitle.text = "Current local version"
+        binding.tvByLabel.text = "LIST"
+        binding.tvByValue.text = currentListSize.toString()
+        binding.tvMinutesValue.text = "CURRENT LIST"
+        binding.tvMinutesLabel.text = "THIS DEVICE"
+        binding.tvQuestion.text = "Upload the list?"
+        binding.tvSecondsLeft.visibility = View.VISIBLE
+        binding.tvSecondsLeft.text = "${syncOfferInitialSeconds.coerceAtLeast(0)} sec"
+        binding.btnNo.text = "NO"
+        binding.btnDownload.text = "YES"
 
         binding.root.post {
             applyGradientText(binding.tvTitle, 0xFF86D8FF.toInt(), 0xFFE56CFF.toInt())
@@ -264,8 +352,7 @@ class SyncUiController(
     }
 
     private fun getRemainingSyncOfferSeconds(): Int {
-        val elapsedSeconds =
-            ((SystemClock.elapsedRealtime() - syncOfferStartElapsedMs) / 1000L).toInt()
+        val elapsedSeconds = ((SystemClock.elapsedRealtime() - syncOfferStartElapsedMs) / 1000L).toInt()
         return (syncOfferInitialSeconds - elapsedSeconds).coerceAtLeast(0)
     }
 
@@ -280,6 +367,23 @@ class SyncUiController(
             onAcceptSyncOffer()
         } else {
             onDeclineSyncOffer()
+        }
+
+        syncOfferDialog?.dismiss()
+        syncOfferDialog = null
+        syncOfferBinding = null
+    }
+
+    private fun dismissUploadDialog(accepted: Boolean) {
+        if (syncOfferHandled) return
+
+        syncOfferHandled = true
+        stopSyncOfferCountdown()
+
+        if (accepted) {
+            onConfirmUpload()
+        } else {
+            onCancelUpload()
         }
 
         syncOfferDialog?.dismiss()
