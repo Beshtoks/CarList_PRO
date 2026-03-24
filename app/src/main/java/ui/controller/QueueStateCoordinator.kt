@@ -19,10 +19,14 @@ class QueueStateCoordinator(
         if (snapshot.isNotEmpty()) {
             queueManager.restoreFromSnapshot(
                 snapshot = snapshot,
-                isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
+                isNumberAllowedByRegistry = { number ->
+                    registryStore.isAllowed(number)
+                }
             )
 
-            queueManager.validateAgainstRegistry { registryStore.isAllowed(it) }
+            queueManager.validateAgainstRegistry { number ->
+                registryStore.isAllowed(number)
+            }
         }
 
         queueManager.clearUndoHistory()
@@ -30,20 +34,40 @@ class QueueStateCoordinator(
     }
 
     fun publishSnapshot(pushToServer: Boolean) {
-        val snap = queueManager.snapshot()
-        onQueuePublished(snap)
-        queueStateStore.save(snap)
+        val snapshot = queueManager.snapshot()
+
+        onQueuePublished(snapshot)
+        queueStateStore.save(snapshot)
 
         if (pushToServer) {
-            onPushSnapshotRequested(snap)
+            onPushSnapshotRequested(snapshot)
         }
     }
 
     fun applyRemoteQueue(remoteQueue: List<QueueItem>) {
+        val currentSnapshot = queueManager.snapshot()
+
+        // 🔴 КЛЮЧЕВОЙ ФИКС:
+        // если удалённый снимок равен текущему локальному состоянию,
+        // это, скорее всего, эхо нашего же собственного обновления.
+        // В этом случае НЕ трогаем очередь и НЕ чистим undo history.
+        if (currentSnapshot == remoteQueue) {
+            return
+        }
+
         queueManager.restoreFromSnapshot(
             snapshot = remoteQueue,
-            isNumberAllowedByRegistry = { true }
+            isNumberAllowedByRegistry = { number ->
+                registryStore.isAllowed(number)
+            }
         )
+
+        queueManager.validateAgainstRegistry { number ->
+            registryStore.isAllowed(number)
+        }
+
+        // Чистим undo только когда реально применили ЧУЖОЕ/НОВОЕ состояние,
+        // а не собственное локальное эхо.
         queueManager.clearUndoHistory()
         publishSnapshot(false)
     }

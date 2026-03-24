@@ -34,6 +34,7 @@ class QueueManager {
 
     fun clear(): OperationResult {
         if (items.isEmpty()) return OperationResult.Success
+
         saveUndoSnapshot(items.toList())
         items.clear()
         dragSnapshot = null
@@ -90,7 +91,6 @@ class QueueManager {
     }
 
     fun move(from: Int, to: Int): OperationResult {
-
         if (from !in items.indices || to !in items.indices) return OperationResult.InvalidIndex
         if (from == to) return OperationResult.Success
 
@@ -125,7 +125,6 @@ class QueueManager {
     }
 
     fun setStatus(number: Int, status: Status): OperationResult {
-
         val idx = items.indexOfFirst { it.number == number }
         if (idx == -1) return OperationResult.NumberNotFound
 
@@ -247,8 +246,6 @@ class QueueManager {
     }
 
     private fun saveUndoSnapshot(snapshot: List<QueueItem>) {
-        if (snapshot == items.toList()) return
-
         val last = undoHistory.lastOrNull()
         if (last == snapshot) return
 
