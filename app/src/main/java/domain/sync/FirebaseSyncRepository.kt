@@ -84,7 +84,6 @@ class FirebaseSyncRepository(
 
                 val snapshot = parseSnapshot(document)
 
-                // 🔴 КЛЮЧЕВОЕ: проверка 200 минут
                 val now = System.currentTimeMillis()
                 val isExpired = snapshot.updatedAtMs > 0 &&
                         now - snapshot.updatedAtMs > LIST_TTL_MS
@@ -104,7 +103,7 @@ class FirebaseSyncRepository(
                 callback?.onSyncStateChanged(resolveState(snapshot))
             }
             .addOnFailureListener {
-                callback?.onBlocked("Не удалось прочитать список с сервера.")
+                callback?.onBlocked("Failed to read list from server")
             }
     }
 
@@ -117,12 +116,12 @@ class FirebaseSyncRepository(
     fun pushSnapshot(queue: List<QueueItem>, authorNumber: Int?) {
 
         if (queue.isEmpty()) {
-            callback?.onBlocked("Список пустой — отправка невозможна.")
+            callback?.onBlocked("List is empty — upload not possible")
             return
         }
 
         if (authorNumber == null) {
-            callback?.onBlocked("Сначала укажи MY CAR.")
+            callback?.onBlocked("Set MY CAR first")
             return
         }
 
@@ -163,7 +162,7 @@ class FirebaseSyncRepository(
             transaction.set(roomRef, data, SetOptions.merge())
         }
             .addOnFailureListener {
-                callback?.onBlocked("Не удалось отправить список.")
+                callback?.onBlocked("Failed to upload list")
             }
     }
 
@@ -194,7 +193,7 @@ class FirebaseSyncRepository(
             if (!started) return@addSnapshotListener
 
             if (error != null) {
-                callback?.onBlocked("Ошибка соединения с сервером.")
+                callback?.onBlocked("Server connection error")
                 return@addSnapshotListener
             }
 
@@ -226,23 +225,59 @@ class FirebaseSyncRepository(
     private fun parseSnapshot(document: DocumentSnapshot): RemoteQueueSnapshot {
         val rawQueue = document.get(FIELD_QUEUE) as? List<*>
 
-        val parsedQueue = rawQueue?.mapNotNull {
-            val map = it as? Map<*, *> ?: return@mapNotNull null
+        val parsedQueue = rawQueue?.mapNotNull { rawItem ->
+            val map = rawItem as? Map<*, *> ?: return@mapNotNull null
 
-            val number = (map[FIELD_NUMBER] as? Long)?.toInt() ?: return@mapNotNull null
-            val status = Status.valueOf(map[FIELD_STATUS].toString())
+            val number = map[FIELD_NUMBER].asIntOrNull()
+                ?.takeIf { it in 1..99 }
+                ?: return@mapNotNull null
+
+            val status = parseStatusSafe(map[FIELD_STATUS])
 
             QueueItem(number, status)
         } ?: emptyList()
 
         return RemoteQueueSnapshot(
             queue = parsedQueue,
-            authorNumber = document.getLong(FIELD_LAST_AUTHOR_NUMBER)?.toInt(),
-            updatedAtMs = document.getLong(FIELD_UPDATED_AT_MS) ?: 0L,
+            authorNumber = document.get(FIELD_LAST_AUTHOR_NUMBER).asIntOrNull(),
+            updatedAtMs = document.get(FIELD_UPDATED_AT_MS).asLongOrZero(),
             lockOwnerDeviceId = document.getString(FIELD_LOCK_OWNER_DEVICE_ID),
-            lockOwnerNumber = document.getLong(FIELD_LOCK_OWNER_NUMBER)?.toInt(),
-            lockUntilMs = document.getLong(FIELD_LOCK_UNTIL_MS) ?: 0L
+            lockOwnerNumber = document.get(FIELD_LOCK_OWNER_NUMBER).asIntOrNull(),
+            lockUntilMs = document.get(FIELD_LOCK_UNTIL_MS).asLongOrZero()
         )
+    }
+
+    private fun parseStatusSafe(rawValue: Any?): Status {
+        val rawName = rawValue?.toString()?.trim().orEmpty()
+        if (rawName.isEmpty()) return Status.NONE
+
+        return try {
+            Status.valueOf(rawName)
+        } catch (_: IllegalArgumentException) {
+            Status.NONE
+        }
+    }
+
+    private fun Any?.asIntOrNull(): Int? {
+        return when (this) {
+            is Int -> this
+            is Long -> this.toInt()
+            is Double -> this.toInt()
+            is Float -> this.toInt()
+            is String -> this.trim().toIntOrNull()
+            else -> null
+        }
+    }
+
+    private fun Any?.asLongOrZero(): Long {
+        return when (this) {
+            is Long -> this
+            is Int -> this.toLong()
+            is Double -> this.toLong()
+            is Float -> this.toLong()
+            is String -> this.trim().toLongOrNull() ?: 0L
+            else -> 0L
+        }
     }
 
     private fun resolveState(snapshot: RemoteQueueSnapshot): SyncState {
@@ -286,8 +321,6 @@ class FirebaseSyncRepository(
         private const val FIELD_UPDATED_AT = "updatedAt"
 
         private const val LOCK_TTL_MS = 10_000L
-
-        // 🔴 ГЛАВНОЕ ПРАВИЛО
-        private const val LIST_TTL_MS = 200 * 60 * 1000L // 200 минут
+        private const val LIST_TTL_MS = 300 * 60 * 1000L // 200 minutes
     }
 }

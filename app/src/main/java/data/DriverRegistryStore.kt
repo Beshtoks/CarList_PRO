@@ -2,6 +2,7 @@ package com.carlist.pro.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import com.carlist.pro.domain.RegistryEntry
 import com.carlist.pro.domain.TransportInfo
 import com.carlist.pro.domain.TransportType
@@ -76,6 +77,7 @@ class DriverRegistryStore(context: Context) {
 
             Result.success(Unit)
         } catch (e: Exception) {
+            Log.e(TAG, "upsertNumber failed: oldNumber=$oldNumber, newNumber=$newNumber", e)
             Result.failure(e)
         }
     }
@@ -94,8 +96,8 @@ class DriverRegistryStore(context: Context) {
             }
             clearCategories(number)
             normalizeSingleMyCar()
-        } catch (_: Exception) {
-            // Не роняем приложение
+        } catch (e: Exception) {
+            Log.e(TAG, "removeNumber failed: number=$number", e)
         }
     }
 
@@ -107,8 +109,8 @@ class DriverRegistryStore(context: Context) {
 
             saveNumbers(sorted)
             normalizeSingleMyCar()
-        } catch (_: Exception) {
-            // Не роняем приложение
+        } catch (e: Exception) {
+            Log.e(TAG, "sortNumbersAscending failed", e)
         }
     }
 
@@ -130,7 +132,8 @@ class DriverRegistryStore(context: Context) {
             val my = prefs.getBoolean(keyMyCar(number), false)
 
             TransportInfo(type, my)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "getInfo failed: number=$number", e)
             TransportInfo(TransportType.NONE, false)
         }
     }
@@ -147,8 +150,8 @@ class DriverRegistryStore(context: Context) {
             if (info.isMyCar) {
                 enforceSingleMyCar(number)
             }
-        } catch (_: Exception) {
-            // Не роняем приложение
+        } catch (e: Exception) {
+            Log.e(TAG, "setInfo failed: number=$number, info=$info", e)
         }
     }
 
@@ -159,8 +162,8 @@ class DriverRegistryStore(context: Context) {
             prefs.edit()
                 .putString(keyType(number), type.name)
                 .apply()
-        } catch (_: Exception) {
-            // Не роняем приложение
+        } catch (e: Exception) {
+            Log.e(TAG, "setTransportType failed: number=$number, type=$type", e)
         }
     }
 
@@ -178,8 +181,8 @@ class DriverRegistryStore(context: Context) {
             }
 
             enforceSingleMyCar(number)
-        } catch (_: Exception) {
-            // Не роняем приложение
+        } catch (e: Exception) {
+            Log.e(TAG, "toggleMyCar failed: number=$number", e)
         }
     }
 
@@ -195,15 +198,16 @@ class DriverRegistryStore(context: Context) {
                 editor.putBoolean(keyMyCar(number), false)
             }
             editor.apply()
-        } catch (_: Exception) {
-            // Не роняем приложение
+        } catch (e: Exception) {
+            Log.e(TAG, "clearMyCar failed", e)
         }
     }
 
     fun getMyCar(): Int? {
         return try {
             readNumbersSafe().firstOrNull { prefs.getBoolean(keyMyCar(it), false) }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "getMyCar failed", e)
             null
         }
     }
@@ -216,8 +220,8 @@ class DriverRegistryStore(context: Context) {
                 .remove(keyType(number))
                 .remove(keyMyCar(number))
                 .apply()
-        } catch (_: Exception) {
-            // Не роняем приложение
+        } catch (e: Exception) {
+            Log.e(TAG, "clearCategories failed: number=$number", e)
         }
     }
 
@@ -230,8 +234,8 @@ class DriverRegistryStore(context: Context) {
             }
 
             editor.apply()
-        } catch (_: Exception) {
-            // Не роняем приложение
+        } catch (e: Exception) {
+            Log.e(TAG, "enforceSingleMyCar failed: number=$number", e)
         }
     }
 
@@ -254,8 +258,8 @@ class DriverRegistryStore(context: Context) {
             }
 
             editor.apply()
-        } catch (_: Exception) {
-            // Не роняем приложение
+        } catch (e: Exception) {
+            Log.e(TAG, "normalizeSingleMyCar failed", e)
         }
     }
 
@@ -268,7 +272,8 @@ class DriverRegistryStore(context: Context) {
                 .mapNotNull { it.trim().toIntOrNull() }
                 .filter { it in 1..99 }
                 .distinct()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "readNumbersSafe failed", e)
             emptyList()
         }
     }
@@ -283,8 +288,8 @@ class DriverRegistryStore(context: Context) {
             prefs.edit()
                 .putString(KEY_NUMBERS_ORDERED, normalized)
                 .apply()
-        } catch (_: Exception) {
-            // Не роняем приложение
+        } catch (e: Exception) {
+            Log.e(TAG, "saveNumbers failed: numbers=$numbers", e)
         }
     }
 
@@ -292,6 +297,7 @@ class DriverRegistryStore(context: Context) {
     private fun keyMyCar(number: Int) = "mycar_$number"
 
     companion object {
+        private const val TAG = "DriverRegistryStore"
         private const val PREFS_NAME = "driver_registry_store"
         private const val KEY_NUMBERS_ORDERED = "allowed_numbers_ordered"
     }

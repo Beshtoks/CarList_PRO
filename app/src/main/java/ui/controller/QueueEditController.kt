@@ -24,7 +24,10 @@ class QueueEditController(
             isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
         )
 
-        publishSnapshot(true)
+        if (result is QueueManager.AddResult.Added) {
+            publishSnapshot(true)
+        }
+
         return result
     }
 
@@ -33,7 +36,9 @@ class QueueEditController(
         if (blocked != null) return blocked
 
         val res = queueManager.removeAt(index)
-        publishSnapshot(true)
+        if (res == QueueManager.OperationResult.Success) {
+            publishSnapshot(true)
+        }
         return res
     }
 
@@ -42,7 +47,9 @@ class QueueEditController(
         if (blocked != null) return blocked
 
         val res = queueManager.removeByNumber(number)
-        publishSnapshot(true)
+        if (res == QueueManager.OperationResult.Success) {
+            publishSnapshot(true)
+        }
         return res
     }
 
@@ -51,7 +58,9 @@ class QueueEditController(
         if (blocked != null) return blocked
 
         val res = queueManager.setStatus(number, status)
-        publishSnapshot(true)
+        if (res == QueueManager.OperationResult.Success) {
+            publishSnapshot(true)
+        }
         return res
     }
 
@@ -60,7 +69,9 @@ class QueueEditController(
         if (blocked != null) return blocked
 
         val res = queueManager.clear()
-        publishSnapshot(true)
+        if (res == QueueManager.OperationResult.Success) {
+            publishSnapshot(true)
+        }
         return res
     }
 
@@ -84,13 +95,17 @@ class QueueEditController(
 
     private fun guardQueueEditing(): QueueManager.AddResult? {
         if (!isQueueEditingBlocked()) return null
-        onBlockedMessage("Список сейчас изменяет другой телефон.")
+        onBlockedMessage(BLOCKED_MESSAGE)
         return QueueManager.AddResult.DuplicateInQueue
     }
 
     private fun guardQueueEditingOperation(): QueueManager.OperationResult? {
         if (!isQueueEditingBlocked()) return null
-        onBlockedMessage("Список сейчас изменяет другой телефон.")
+        onBlockedMessage(BLOCKED_MESSAGE)
         return QueueManager.OperationResult.InvalidMove
+    }
+
+    companion object {
+        private const val BLOCKED_MESSAGE = "List is currently being edited by another phone"
     }
 }

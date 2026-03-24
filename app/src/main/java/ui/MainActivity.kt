@@ -88,6 +88,8 @@ class MainActivity : AppCompatActivity() {
     private var preservedFirstVisiblePosition = 0
     private var preservedFirstVisibleTop = 0
     private var suppressReplaceCancelOnNextKeyboardHide = false
+    private var notificationPermissionRequestInFlight = false
+    private var notificationPermissionFlowHandled = false
 
     private val recordAudioPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -96,6 +98,9 @@ class MainActivity : AppCompatActivity() {
 
     private val postNotificationsPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            notificationPermissionRequestInFlight = false
+            notificationPermissionFlowHandled = true
+
             if (granted) {
                 ensureBackgroundMonitorServiceStarted()
             } else {
@@ -383,7 +388,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        ensureNotificationsPermissionAndStartService()
+        ensureBackgroundMonitorServiceStartedIfPermitted()
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -432,6 +437,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun ensureNotificationsPermissionAndStartService() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionFlowHandled = true
             ensureBackgroundMonitorServiceStarted()
             return
         }
@@ -441,12 +447,37 @@ class MainActivity : AppCompatActivity() {
                 this,
                 Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED -> {
+                notificationPermissionFlowHandled = true
                 ensureBackgroundMonitorServiceStarted()
             }
 
+            notificationPermissionRequestInFlight || notificationPermissionFlowHandled -> {
+                backgroundServiceStarted = false
+            }
+
             else -> {
+                notificationPermissionRequestInFlight = true
                 postNotificationsPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
+        }
+    }
+
+    private fun ensureBackgroundMonitorServiceStartedIfPermitted() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            ensureBackgroundMonitorServiceStarted()
+            return
+        }
+
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (granted) {
+            notificationPermissionFlowHandled = true
+            ensureBackgroundMonitorServiceStarted()
+        } else {
+            backgroundServiceStarted = false
         }
     }
 
@@ -1080,7 +1111,7 @@ class MainActivity : AppCompatActivity() {
 
                 override fun onLongPress(e: MotionEvent) {
                     if (!isLockedByOther()) return
-                    val child = binding.queueRecycler.findChildViewUnder(e.x, e.y) ?: return
+                    binding.queueRecycler.findChildViewUnder(e.x, e.y) ?: return
                     blockedActionFeedback()
                 }
             }
