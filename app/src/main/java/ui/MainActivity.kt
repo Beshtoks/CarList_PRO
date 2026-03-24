@@ -796,7 +796,7 @@ class MainActivity : AppCompatActivity() {
                 .show()
 
             dialog.window?.setBackgroundDrawable(ColorDrawable(0xFF2A0033.toInt()))
-            dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)
+            dialog.findViewById<TextView>(android.R.id.title)
                 ?.setTextColor(Color.WHITE)
             dialog.findViewById<TextView>(android.R.id.message)
                 ?.setTextColor(Color.WHITE)
