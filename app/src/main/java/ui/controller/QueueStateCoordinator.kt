@@ -41,10 +41,9 @@ class QueueStateCoordinator(
     fun applyRemoteQueue(remoteQueue: List<QueueItem>) {
         queueManager.restoreFromSnapshot(
             snapshot = remoteQueue,
-            isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
+            isNumberAllowedByRegistry = { true }
         )
 
-        queueManager.validateAgainstRegistry { registryStore.isAllowed(it) }
         publishSnapshot(false)
     }
 }

@@ -39,7 +39,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _syncState = MutableLiveData<SyncState>(SyncState.Off)
     val syncState: LiveData<SyncState> = _syncState
 
-    private val _syncPanelText = MutableLiveData("SYNC OFF")
+    private val _syncPanelText = MutableLiveData("SYNC --")
     val syncPanelText: LiveData<String> = _syncPanelText
 
     private val _syncMessage = MutableLiveData<String?>(null)

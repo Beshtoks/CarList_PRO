@@ -13,9 +13,6 @@ class QueueEditController(
 ) {
 
     fun addNumber(numberOrNull: Int?): QueueManager.AddResult {
-        val blocked = guardQueueEditing()
-        if (blocked != null) return blocked
-
         val number = numberOrNull ?: return QueueManager.AddResult.InvalidNumber
         if (number !in 1..99) return QueueManager.AddResult.InvalidNumber
 
@@ -24,66 +21,39 @@ class QueueEditController(
             isNumberAllowedByRegistry = { n -> registryStore.isAllowed(n) }
         )
 
-        if (result is QueueManager.AddResult.Added) {
-            publishSnapshot(true)
-        }
-
+        publishSnapshot(true)
         return result
     }
 
     fun removeAt(index: Int): QueueManager.OperationResult {
-        val blocked = guardQueueEditingOperation()
-        if (blocked != null) return blocked
-
         val res = queueManager.removeAt(index)
-        if (res == QueueManager.OperationResult.Success) {
-            publishSnapshot(true)
-        }
+        publishSnapshot(true)
         return res
     }
 
     fun removeByNumber(number: Int): QueueManager.OperationResult {
-        val blocked = guardQueueEditingOperation()
-        if (blocked != null) return blocked
-
         val res = queueManager.removeByNumber(number)
-        if (res == QueueManager.OperationResult.Success) {
-            publishSnapshot(true)
-        }
+        publishSnapshot(true)
         return res
     }
 
     fun setStatus(number: Int, status: Status): QueueManager.OperationResult {
-        val blocked = guardQueueEditingOperation()
-        if (blocked != null) return blocked
-
         val res = queueManager.setStatus(number, status)
-        if (res == QueueManager.OperationResult.Success) {
-            publishSnapshot(true)
-        }
+        publishSnapshot(true)
         return res
     }
 
     fun clear(): QueueManager.OperationResult {
-        val blocked = guardQueueEditingOperation()
-        if (blocked != null) return blocked
-
         val res = queueManager.clear()
-        if (res == QueueManager.OperationResult.Success) {
-            publishSnapshot(true)
-        }
+        publishSnapshot(true)
         return res
     }
 
     fun moveForDrag(from: Int, to: Int): QueueManager.OperationResult {
-        val blocked = guardQueueEditingOperation()
-        if (blocked != null) return blocked
-
         return queueManager.move(from, to)
     }
 
     fun commitDrag() {
-        if (isQueueEditingBlocked()) return
         publishSnapshot(true)
     }
 
@@ -91,21 +61,5 @@ class QueueEditController(
         val result = queueManager.validateAgainstRegistry { registryStore.isAllowed(it) }
         publishSnapshot(true)
         return result
-    }
-
-    private fun guardQueueEditing(): QueueManager.AddResult? {
-        if (!isQueueEditingBlocked()) return null
-        onBlockedMessage(BLOCKED_MESSAGE)
-        return QueueManager.AddResult.DuplicateInQueue
-    }
-
-    private fun guardQueueEditingOperation(): QueueManager.OperationResult? {
-        if (!isQueueEditingBlocked()) return null
-        onBlockedMessage(BLOCKED_MESSAGE)
-        return QueueManager.OperationResult.InvalidMove
-    }
-
-    companion object {
-        private const val BLOCKED_MESSAGE = "List is currently being edited by another phone"
     }
 }

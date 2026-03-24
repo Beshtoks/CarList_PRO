@@ -23,113 +23,111 @@ class SyncCoordinator(
     private val onNetworkAlertVisible: (Boolean) -> Unit
 ) {
 
+    private enum class OperationMode {
+        IDLE,
+        REFRESH,
+        DOWNLOAD,
+        UPLOAD
+    }
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private var syncEnabled = false
-    private var pendingOfferRequest = false
     private var latestRemoteSnapshot: RemoteQueueSnapshot? = null
-    private var networkAlertActive = false
-    private var shouldRestoreSyncAfterNetworkReturn = false
-    private var heartbeatMisses = 0
     private var lastKnownOnline: Boolean? = null
-    private var currentOffer: SyncOffer? = null
-    private var oneShotUploadInProgress = false
+    private var currentOperation: OperationMode = OperationMode.IDLE
+    private var operationInProgress = false
+    private var networkAlertVisible = false
+
+    private var pendingUploadAuthorNumber: Int? = null
+    private var pendingUploadQueue: List<QueueItem> = emptyList()
+    private var uploadCommandSent = false
 
     private val repositoryCallback = object : FirebaseSyncRepository.Callback {
 
         override fun onSyncStateChanged(state: SyncState) {
-            if (currentOffer != null || networkAlertActive) {
-                return
-            }
-
-            when (state) {
-                is SyncState.LockedByMe,
-                is SyncState.LockedByOther -> startSyncCountdown()
-
-                else -> {
-                    if (!shouldKeepSyncCountdownRunning()) {
-                        stopSyncCountdown()
+            when (currentOperation) {
+                OperationMode.IDLE -> refreshUiState()
+                OperationMode.REFRESH,
+                OperationMode.DOWNLOAD,
+                OperationMode.UPLOAD -> {
+                    val uiState = if (!networkMonitor.isCurrentlyOnline()) {
+                        SyncState.NoNetwork
+                    } else {
+                        SyncState.Connecting
                     }
+                    setUiState(uiState)
                 }
-            }
-
-            if (latestRemoteSnapshot != null) {
-                updateSyncStateFromLatestSnapshot()
-            } else {
-                setSyncState(state)
             }
         }
 
         override fun onRemoteSnapshot(snapshot: RemoteQueueSnapshot) {
             latestRemoteSnapshot = snapshot
+            updatePanelText()
 
-            if (pendingOfferRequest) {
-                pendingOfferRequest = false
-
-                val remoteQueue = snapshot.queue
-                val localQueue = queueSnapshotProvider()
-
-                if (remoteQueue != localQueue) {
-                    val offer = SyncOffer(
-                        snapshot = snapshot,
-                        secondsRemaining = SYNC_OFFER_SECONDS
-                    )
-                    setCurrentOffer(offer)
-                    setSyncState(
-                        SyncState.OfferAvailable(
-                            authorNumber = snapshot.authorNumber,
-                            secondsLeft = SYNC_OFFER_SECONDS
-                        )
-                    )
-                    return
+            when (currentOperation) {
+                OperationMode.REFRESH -> {
+                    finishOperation()
                 }
-            }
 
-            if (!networkAlertActive) {
-                updateSyncStateFromLatestSnapshot()
+                OperationMode.DOWNLOAD -> {
+                    if (!isSnapshotUsable(snapshot)) {
+                        onSyncMessage("ACTUAL LIST NOT AVAILABLE")
+                        finishOperation()
+                        return
+                    }
+
+                    val localQueue = queueSnapshotProvider()
+                    if (snapshot.queue == localQueue) {
+                        onSyncMessage("LIST IS ALREADY CURRENT")
+                        finishOperation()
+                        return
+                    }
+
+                    onApplyRemoteQueue(snapshot.queue)
+                    onSyncMessage("LIST DOWNLOADED")
+                    finishOperation()
+                }
+
+                OperationMode.UPLOAD -> {
+                    if (!uploadCommandSent) return
+                    if (!doesSnapshotMatchPendingUpload(snapshot)) return
+
+                    onSyncMessage("LIST UPLOADED")
+                    finishOperation()
+                }
+
+                OperationMode.IDLE -> {
+                    refreshUiState()
+                }
             }
         }
 
         override fun onBlocked(reason: String) {
-            pendingOfferRequest = false
-            onSyncMessage(reason)
-        }
-    }
-
-    private val syncCountdownRunnable = object : Runnable {
-        override fun run() {
-            updateSyncStateFromLatestSnapshot()
-            if (shouldKeepSyncCountdownRunning()) {
-                mainHandler.postDelayed(this, 1000L)
-            }
-        }
-    }
-
-    private val syncHeartbeatRunnable = object : Runnable {
-        override fun run() {
-            if (!syncEnabled) return
-
-            val onlineNow = networkMonitor.isCurrentlyOnline()
-            if (!onlineNow) {
-                handleNetworkChanged(false)
-                return
-            }
-
-            syncRepository.pingServer { ok ->
-                if (!syncEnabled) return@pingServer
-
-                if (ok) {
-                    heartbeatMisses = 0
-                } else {
-                    heartbeatMisses += 1
-                    if (heartbeatMisses >= HEARTBEAT_FAIL_LIMIT) {
-                        handleSyncConnectionLost()
-                        return@pingServer
+            when (currentOperation) {
+                OperationMode.REFRESH -> {
+                    if (reason == "ACTUAL LIST NOT AVAILABLE") {
+                        latestRemoteSnapshot = null
+                        updatePanelText()
                     }
+                    finishOperation()
                 }
 
-                if (syncEnabled) {
-                    mainHandler.postDelayed(this, HEARTBEAT_INTERVAL_MS)
+                OperationMode.DOWNLOAD,
+                OperationMode.UPLOAD -> {
+                    if (reason.isNotBlank()) {
+                        onSyncMessage(reason)
+                    }
+                    if (reason == "ACTUAL LIST NOT AVAILABLE") {
+                        latestRemoteSnapshot = null
+                        updatePanelText()
+                    }
+                    finishOperation()
+                }
+
+                OperationMode.IDLE -> {
+                    if (reason.isNotBlank()) {
+                        onSyncMessage(reason)
+                    }
                 }
             }
         }
@@ -147,108 +145,102 @@ class SyncCoordinator(
         }
     }
 
+    private val panelRefreshRunnable = object : Runnable {
+        override fun run() {
+            updatePanelText()
+            mainHandler.postDelayed(this, PANEL_REFRESH_INTERVAL_MS)
+        }
+    }
+
     fun initialize() {
         networkMonitor.start { isOnline ->
             handleNetworkChanged(isOnline)
         }
 
         startNetworkStatePolling()
+        startPanelRefresh()
+        onSyncOfferChanged(null)
 
         val onlineNow = networkMonitor.isCurrentlyOnline()
         lastKnownOnline = onlineNow
 
         if (!onlineNow) {
-            networkAlertActive = true
+            networkAlertVisible = true
             onNetworkAlertVisible(true)
-            setSyncState(SyncState.NoNetwork)
-        } else {
-            refreshSyncPanelState()
+            setUiState(SyncState.NoNetwork)
+            updatePanelText()
+            return
         }
+
+        refreshUiState()
+        refreshRemoteInfoSilently()
     }
 
     fun onServerPanelLongPress() {
-        if (syncEnabled) {
-            stopSync()
-            return
-        }
-
-        if (!networkMonitor.isCurrentlyOnline()) {
-            networkAlertActive = true
-            onNetworkAlertVisible(true)
-            setSyncState(SyncState.NoNetwork)
-            return
-        }
-
-        if (registryStore.getMyCar() == null) {
-            setSyncState(SyncState.NeedMyCar)
-            onSyncMessage("SET MY CAR FIRST FOR SYNC")
-            return
-        }
-
-        shouldRestoreSyncAfterNetworkReturn = false
-        syncEnabled = true
-        pendingOfferRequest = false
-        setCurrentOffer(null)
-        latestRemoteSnapshot = null
-        stopSyncCountdown()
-        startSyncHeartbeat()
-        setSyncState(SyncState.Connecting)
-        syncRepository.start(repositoryCallback)
+        // no action
     }
 
     fun onServerPanelClick() {
-        if (!syncEnabled) return
-        pendingOfferRequest = true
-        syncRepository.requestLatestSnapshot()
+        if (!networkMonitor.isCurrentlyOnline()) {
+            showNoNetworkAlert()
+            return
+        }
+
+        if (operationInProgress) return
+
+        onSyncOfferChanged(null)
+        startOperation(OperationMode.DOWNLOAD)
+
+        mainHandler.postDelayed({
+            if (currentOperation != OperationMode.DOWNLOAD) return@postDelayed
+            syncRepository.requestLatestSnapshot()
+        }, OPERATION_START_DELAY_MS)
     }
 
     fun onServerPanelDoubleTapUpload() {
         if (!canUploadCurrentQueue()) return
 
-        if (syncEnabled) {
-            syncRepository.pushSnapshot(
-                queue = queueSnapshotProvider(),
-                authorNumber = registryStore.getMyCar()
-            )
-            return
-        }
-
         if (!networkMonitor.isCurrentlyOnline()) {
-            networkAlertActive = true
-            onNetworkAlertVisible(true)
-            setSyncState(SyncState.NoNetwork)
+            showNoNetworkAlert()
             return
         }
 
-        oneShotUploadInProgress = true
-        syncEnabled = true
-        pendingOfferRequest = false
-        setCurrentOffer(null)
-        latestRemoteSnapshot = null
-        stopSyncCountdown()
-        setSyncState(SyncState.Connecting)
+        if (operationInProgress) return
 
-        syncRepository.start(repositoryCallback)
+        val authorNumber = registryStore.getMyCar()
+        val queue = queueSnapshotProvider()
+
+        if (authorNumber == null || queue.isEmpty()) {
+            if (authorNumber == null) {
+                onSyncMessage("SET MY CAR FIRST")
+            } else {
+                onSyncMessage("EMPTY LIST - UPLOAD NOT POSSIBLE")
+            }
+            return
+        }
+
+        onSyncOfferChanged(null)
+        pendingUploadAuthorNumber = authorNumber
+        pendingUploadQueue = queue
+        uploadCommandSent = false
+
+        startOperation(OperationMode.UPLOAD)
 
         mainHandler.postDelayed({
-            val queue = queueSnapshotProvider()
-            val myCar = registryStore.getMyCar()
+            if (currentOperation != OperationMode.UPLOAD) return@postDelayed
 
-            if (!oneShotUploadInProgress) return@postDelayed
-
+            uploadCommandSent = true
             syncRepository.pushSnapshot(
                 queue = queue,
-                authorNumber = myCar
+                authorNumber = authorNumber
             )
 
             mainHandler.postDelayed({
-                if (!oneShotUploadInProgress) return@postDelayed
-                oneShotUploadInProgress = false
-                syncEnabled = false
-                syncRepository.stop()
-                setSyncState(SyncState.Off)
-            }, ONE_SHOT_UPLOAD_FINISH_DELAY_MS)
-        }, ONE_SHOT_UPLOAD_START_DELAY_MS)
+                if (currentOperation != OperationMode.UPLOAD) return@postDelayed
+                if (!uploadCommandSent) return@postDelayed
+                syncRepository.requestLatestSnapshot()
+            }, UPLOAD_REFRESH_REQUEST_DELAY_MS)
+        }, OPERATION_START_DELAY_MS)
     }
 
     fun canUploadCurrentQueue(): Boolean {
@@ -268,143 +260,160 @@ class SyncCoordinator(
     }
 
     fun acceptSyncOffer() {
-        val offer = currentOffer ?: return
-        onApplyRemoteQueue(offer.snapshot.queue)
-        setCurrentOffer(null)
-        pendingOfferRequest = false
-        updateSyncStateFromLatestSnapshot()
+        onSyncOfferChanged(null)
     }
 
     fun declineSyncOffer() {
-        setCurrentOffer(null)
-        pendingOfferRequest = false
-        updateSyncStateFromLatestSnapshot()
+        onSyncOfferChanged(null)
     }
 
     fun clearSyncOffer() {
-        setCurrentOffer(null)
-        pendingOfferRequest = false
+        onSyncOfferChanged(null)
     }
 
     fun onNetworkAlertAcknowledged() {
-        networkAlertActive = false
+        networkAlertVisible = false
         onNetworkAlertVisible(false)
 
-        if (networkMonitor.isCurrentlyOnline() && shouldRestoreSyncAfterNetworkReturn) {
-            reconnectAfterNetworkReturn()
-        } else if (!networkMonitor.isCurrentlyOnline()) {
-            setSyncState(SyncState.NoNetwork)
-        } else {
-            refreshSyncPanelState()
+        if (!networkMonitor.isCurrentlyOnline()) {
+            setUiState(SyncState.NoNetwork)
+            return
         }
+
+        refreshUiState()
+        refreshRemoteInfoSilently()
     }
 
     fun onLocalSnapshotChanged(snapshot: List<QueueItem>) {
-        if (!syncEnabled) return
-        if (snapshot.isEmpty()) return
-
-        syncRepository.pushSnapshot(
-            queue = snapshot,
-            authorNumber = registryStore.getMyCar()
-        )
+        // No live sync in the new model.
     }
 
     fun isQueueEditingBlocked(): Boolean {
-        return syncEnabled && !syncRepository.isEditableNow()
+        return false
     }
 
     fun refreshPanelState() {
-        refreshSyncPanelState()
+        refreshUiState()
+        if (networkMonitor.isCurrentlyOnline() && !operationInProgress) {
+            refreshRemoteInfoSilently()
+        }
     }
 
     fun release() {
-        stopSyncCountdown()
-        stopSyncHeartbeat()
         stopNetworkStatePolling()
+        stopPanelRefresh()
+        onSyncOfferChanged(null)
+        currentOperation = OperationMode.IDLE
+        operationInProgress = false
+        clearPendingUploadState()
         syncRepository.stop()
         networkMonitor.stop()
     }
 
-    private fun setCurrentOffer(offer: SyncOffer?) {
-        currentOffer = offer
-        onSyncOfferChanged(offer)
+    private fun refreshRemoteInfoSilently() {
+        if (!networkMonitor.isCurrentlyOnline()) {
+            updatePanelText()
+            return
+        }
+
+        if (operationInProgress) return
+
+        startOperation(OperationMode.REFRESH)
+
+        mainHandler.postDelayed({
+            if (currentOperation != OperationMode.REFRESH) return@postDelayed
+            syncRepository.requestLatestSnapshot()
+        }, OPERATION_START_DELAY_MS)
+    }
+
+    private fun startOperation(mode: OperationMode) {
+        currentOperation = mode
+        operationInProgress = true
+        setUiState(SyncState.Connecting)
+        syncRepository.start(repositoryCallback)
+    }
+
+    private fun finishOperation() {
+        currentOperation = OperationMode.IDLE
+        operationInProgress = false
+        clearPendingUploadState()
+        syncRepository.stop()
+        refreshUiState()
+    }
+
+    private fun refreshUiState() {
+        val state = if (!networkMonitor.isCurrentlyOnline()) {
+            SyncState.NoNetwork
+        } else {
+            SyncState.Off
+        }
+        setUiState(state)
     }
 
     private fun handleNetworkChanged(isOnline: Boolean) {
         lastKnownOnline = isOnline
 
         if (!isOnline) {
-            if (!networkAlertActive) {
-                networkAlertActive = true
+            operationInProgress = false
+            currentOperation = OperationMode.IDLE
+            onSyncOfferChanged(null)
+            clearPendingUploadState()
+            syncRepository.stop()
+
+            if (!networkAlertVisible) {
+                networkAlertVisible = true
                 onNetworkAlertVisible(true)
             }
 
-            if (syncEnabled) {
-                handleSyncConnectionLost()
-            } else {
-                setSyncState(SyncState.NoNetwork)
-            }
+            setUiState(SyncState.NoNetwork)
             return
         }
 
-        if (networkAlertActive) {
-            networkAlertActive = false
+        if (networkAlertVisible) {
+            networkAlertVisible = false
             onNetworkAlertVisible(false)
         }
 
-        if (shouldRestoreSyncAfterNetworkReturn) {
-            reconnectAfterNetworkReturn()
-            return
+        refreshUiState()
+
+        if (!operationInProgress) {
+            refreshRemoteInfoSilently()
         }
-
-        refreshSyncPanelState()
     }
 
-    private fun handleSyncConnectionLost() {
-        shouldRestoreSyncAfterNetworkReturn = true
-        syncEnabled = false
-        pendingOfferRequest = false
-        latestRemoteSnapshot = null
-        heartbeatMisses = 0
-        oneShotUploadInProgress = false
-        stopSyncCountdown()
-        stopSyncHeartbeat()
-        setCurrentOffer(null)
-        syncRepository.stop()
-        setSyncState(SyncState.NoNetwork)
-    }
-
-    private fun reconnectAfterNetworkReturn() {
-        if (!networkMonitor.isCurrentlyOnline()) {
-            setSyncState(SyncState.NoNetwork)
-            return
+    private fun showNoNetworkAlert() {
+        if (!networkAlertVisible) {
+            networkAlertVisible = true
+            onNetworkAlertVisible(true)
         }
-
-        if (registryStore.getMyCar() == null) {
-            shouldRestoreSyncAfterNetworkReturn = false
-            refreshSyncPanelState()
-            return
-        }
-
-        shouldRestoreSyncAfterNetworkReturn = false
-        syncEnabled = true
-        pendingOfferRequest = false
-        latestRemoteSnapshot = null
-        heartbeatMisses = 0
-        stopSyncCountdown()
-        startSyncHeartbeat()
-        setSyncState(SyncState.Connecting)
-        syncRepository.start(repositoryCallback)
+        setUiState(SyncState.NoNetwork)
     }
 
-    private fun startSyncHeartbeat() {
-        heartbeatMisses = 0
-        stopSyncHeartbeat()
-        mainHandler.postDelayed(syncHeartbeatRunnable, HEARTBEAT_INTERVAL_MS)
+    private fun isSnapshotUsable(
+        snapshot: RemoteQueueSnapshot,
+        nowMs: Long = System.currentTimeMillis()
+    ): Boolean {
+        val author = snapshot.authorNumber
+        if (author == null || author !in 1..99) return false
+        if (snapshot.queue.isEmpty()) return false
+        if (snapshot.updatedAtMs <= 0L) return false
+
+        val ageMs = (nowMs - snapshot.updatedAtMs).coerceAtLeast(0L)
+        return ageMs <= SERVER_LIST_TTL_MS
     }
 
-    private fun stopSyncHeartbeat() {
-        mainHandler.removeCallbacks(syncHeartbeatRunnable)
+    private fun doesSnapshotMatchPendingUpload(snapshot: RemoteQueueSnapshot): Boolean {
+        val author = pendingUploadAuthorNumber ?: return false
+        if (snapshot.authorNumber != author) return false
+        if (snapshot.queue != pendingUploadQueue) return false
+        if (!isSnapshotUsable(snapshot)) return false
+        return true
+    }
+
+    private fun clearPendingUploadState() {
+        uploadCommandSent = false
+        pendingUploadAuthorNumber = null
+        pendingUploadQueue = emptyList()
     }
 
     private fun startNetworkStatePolling() {
@@ -416,99 +425,47 @@ class SyncCoordinator(
         mainHandler.removeCallbacks(networkStatePollRunnable)
     }
 
-    private fun stopSync() {
-        shouldRestoreSyncAfterNetworkReturn = false
-        syncEnabled = false
-        pendingOfferRequest = false
-        latestRemoteSnapshot = null
-        heartbeatMisses = 0
-        oneShotUploadInProgress = false
-        stopSyncCountdown()
-        stopSyncHeartbeat()
-        syncRepository.stop()
-        setCurrentOffer(null)
-        setSyncState(SyncState.Off)
+    private fun startPanelRefresh() {
+        stopPanelRefresh()
+        mainHandler.post(panelRefreshRunnable)
     }
 
-    private fun refreshSyncPanelState() {
-        if (syncEnabled) return
-
-        val nextState = when {
-            !networkMonitor.isCurrentlyOnline() -> SyncState.NoNetwork
-            registryStore.getMyCar() == null -> SyncState.NeedMyCar
-            else -> SyncState.Off
-        }
-
-        setSyncState(nextState)
+    private fun stopPanelRefresh() {
+        mainHandler.removeCallbacks(panelRefreshRunnable)
     }
 
-    private fun updateSyncStateFromLatestSnapshot() {
-        if (!syncEnabled) return
-
-        val snapshot = latestRemoteSnapshot
-        if (snapshot == null) {
-            setSyncState(SyncState.OnlineFree)
-            return
-        }
-
-        val now = System.currentTimeMillis()
-        val lockOwner = snapshot.lockOwnerDeviceId
-        val secondsLeft = ((snapshot.lockUntilMs - now).coerceAtLeast(0L) / 1000L).toInt()
-
-        val state = when {
-            lockOwner.isNullOrBlank() || snapshot.lockUntilMs <= now -> SyncState.OnlineFree
-            lockOwner == syncRepository.currentDeviceId() -> {
-                SyncState.LockedByMe(
-                    ownerNumber = snapshot.lockOwnerNumber,
-                    secondsLeft = secondsLeft
-                )
-            }
-
-            else -> {
-                SyncState.LockedByOther(
-                    ownerNumber = snapshot.lockOwnerNumber,
-                    secondsLeft = secondsLeft
-                )
-            }
-        }
-
-        setSyncState(state)
-
-        if (!shouldKeepSyncCountdownRunning()) {
-            stopSyncCountdown()
-        }
-    }
-
-    private fun startSyncCountdown() {
-        stopSyncCountdown()
-        mainHandler.post(syncCountdownRunnable)
-    }
-
-    private fun stopSyncCountdown() {
-        mainHandler.removeCallbacks(syncCountdownRunnable)
-    }
-
-    private fun shouldKeepSyncCountdownRunning(): Boolean {
-        if (!syncEnabled) return false
-
-        val snapshot = latestRemoteSnapshot ?: return false
-        val now = System.currentTimeMillis()
-
-        return !snapshot.lockOwnerDeviceId.isNullOrBlank() &&
-                snapshot.lockUntilMs > now
-    }
-
-    private fun setSyncState(state: SyncState) {
+    private fun setUiState(state: SyncState) {
         onSyncStateChanged(state)
-        onSyncPanelTextChanged(SyncTextFormatter.format(state))
+        updatePanelText()
+    }
+
+    private fun updatePanelText() {
+        onSyncPanelTextChanged(formatPanelText())
+    }
+
+    private fun formatPanelText(nowMs: Long = System.currentTimeMillis()): String {
+        val snapshot = latestRemoteSnapshot ?: return PANEL_NO_LIST
+
+        val updatedAtMs = snapshot.updatedAtMs
+        val author = snapshot.authorNumber
+
+        if (updatedAtMs <= 0L) return PANEL_NO_LIST
+        if (snapshot.queue.isEmpty()) return PANEL_NO_LIST
+        if (author == null || author !in 1..99) return PANEL_NO_LIST
+
+        val ageMs = (nowMs - updatedAtMs).coerceAtLeast(0L)
+        if (ageMs > SERVER_LIST_TTL_MS) return PANEL_NO_LIST
+
+        val minutes = (ageMs / 60_000L).toInt()
+        return "SYNC $author · ${minutes}m"
     }
 
     companion object {
-        private const val SYNC_OFFER_SECONDS = 15
-        private const val HEARTBEAT_INTERVAL_MS = 3_000L
-        private const val HEARTBEAT_FAIL_LIMIT = 1
         private const val NETWORK_POLL_INTERVAL_MS = 1_000L
-        private const val ONE_SHOT_UPLOAD_START_DELAY_MS = 400L
-        private const val ONE_SHOT_UPLOAD_FINISH_DELAY_MS = 900L
+        private const val PANEL_REFRESH_INTERVAL_MS = 30_000L
+        private const val OPERATION_START_DELAY_MS = 350L
+        private const val UPLOAD_REFRESH_REQUEST_DELAY_MS = 900L
+        private const val SERVER_LIST_TTL_MS = 300 * 60 * 1000L
+        private const val PANEL_NO_LIST = "SYNC --"
     }
 }

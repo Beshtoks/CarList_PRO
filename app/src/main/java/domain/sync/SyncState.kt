@@ -6,16 +6,11 @@ sealed interface SyncState {
 
     data object Connecting : SyncState
 
+    data object NoNetwork : SyncState
+
     data object NeedMyCar : SyncState
 
     data object OnlineFree : SyncState
-
-    data object NoNetwork : SyncState
-
-    data class OfferAvailable(
-        val authorNumber: Int?,
-        val secondsLeft: Int
-    ) : SyncState
 
     data class LockedByMe(
         val ownerNumber: Int?,
@@ -24,6 +19,11 @@ sealed interface SyncState {
 
     data class LockedByOther(
         val ownerNumber: Int?,
+        val secondsLeft: Int
+    ) : SyncState
+
+    data class OfferAvailable(
+        val authorNumber: Int?,
         val secondsLeft: Int
     ) : SyncState
 }

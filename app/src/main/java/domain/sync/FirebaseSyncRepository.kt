@@ -30,7 +30,6 @@ class FirebaseSyncRepository(
     private var callback: Callback? = null
     private var started = false
     private var listenerRegistration: ListenerRegistration? = null
-
     private var latestSnapshot: RemoteQueueSnapshot = RemoteQueueSnapshot()
 
     private val deviceId: String by lazy {
@@ -81,20 +80,16 @@ class FirebaseSyncRepository(
 
         roomRef.get()
             .addOnSuccessListener { document ->
-
                 val snapshot = parseSnapshot(document)
-
                 val now = System.currentTimeMillis()
                 val isExpired = snapshot.updatedAtMs > 0 &&
                         now - snapshot.updatedAtMs > LIST_TTL_MS
 
                 if (isExpired) {
                     latestSnapshot = RemoteQueueSnapshot()
-
                     callback?.onBlocked("ACTUAL LIST NOT AVAILABLE")
                     callback?.onRemoteSnapshot(RemoteQueueSnapshot())
                     callback?.onSyncStateChanged(SyncState.OnlineFree)
-
                     return@addOnSuccessListener
                 }
 
@@ -114,14 +109,13 @@ class FirebaseSyncRepository(
     }
 
     fun pushSnapshot(queue: List<QueueItem>, authorNumber: Int?) {
-
         if (queue.isEmpty()) {
-            callback?.onBlocked("List is empty — upload not possible")
+            callback?.onBlocked("EMPTY LIST - UPLOAD NOT POSSIBLE")
             return
         }
 
         if (authorNumber == null) {
-            callback?.onBlocked("Set MY CAR first")
+            callback?.onBlocked("SET MY CAR FIRST")
             return
         }
 
@@ -135,15 +129,14 @@ class FirebaseSyncRepository(
         }
 
         firestore.runTransaction { transaction ->
-
             val snapshot = transaction.get(roomRef)
 
             val lockOwnerDeviceId = snapshot.getString(FIELD_LOCK_OWNER_DEVICE_ID)
             val lockUntilMs = snapshot.getLong(FIELD_LOCK_UNTIL_MS) ?: 0L
 
-            val canEdit = lockOwnerDeviceId.isNullOrBlank()
-                    || lockUntilMs <= now
-                    || lockOwnerDeviceId == deviceId
+            val canEdit = lockOwnerDeviceId.isNullOrBlank() ||
+                    lockUntilMs <= now ||
+                    lockOwnerDeviceId == deviceId
 
             if (!canEdit) {
                 throw IllegalStateException("LOCKED_BY_OTHER")
@@ -160,10 +153,9 @@ class FirebaseSyncRepository(
             )
 
             transaction.set(roomRef, data, SetOptions.merge())
+        }.addOnFailureListener {
+            callback?.onBlocked("Failed to upload list")
         }
-            .addOnFailureListener {
-                callback?.onBlocked("Failed to upload list")
-            }
     }
 
     private fun ensureRoomExists() {
@@ -189,7 +181,6 @@ class FirebaseSyncRepository(
         listenerRegistration?.remove()
 
         listenerRegistration = roomRef.addSnapshotListener { document, error ->
-
             if (!started) return@addSnapshotListener
 
             if (error != null) {
@@ -204,7 +195,6 @@ class FirebaseSyncRepository(
             }
 
             val snapshot = parseSnapshot(document)
-
             val now = System.currentTimeMillis()
             val isExpired = snapshot.updatedAtMs > 0 &&
                     now - snapshot.updatedAtMs > LIST_TTL_MS
@@ -321,6 +311,6 @@ class FirebaseSyncRepository(
         private const val FIELD_UPDATED_AT = "updatedAt"
 
         private const val LOCK_TTL_MS = 10_000L
-        private const val LIST_TTL_MS = 300 * 60 * 1000L // 200 minutes
+        private const val LIST_TTL_MS = 300 * 60 * 1000L
     }
 }

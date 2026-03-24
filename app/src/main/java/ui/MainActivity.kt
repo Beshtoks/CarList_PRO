@@ -80,10 +80,7 @@ class MainActivity : AppCompatActivity() {
     private var lastAutoCopiedText = ""
     private var suppressNextQueueAutoScroll = false
     private var backgroundServiceStarted = false
-    private var pendingServerToggleSound = false
     private var currentSyncState: SyncState = SyncState.Off
-    private var blockedFeedbackAtMs = 0L
-    private var blockedBlinkToken = 0
     private var replacingNumber: Int? = null
     private var preserveScrollOnNextImeOpen = false
     private var preservedFirstVisiblePosition = 0
@@ -209,23 +206,12 @@ class MainActivity : AppCompatActivity() {
         adapter = QueueAdapter(
             transportInfoProvider = { number -> viewModel.getTransportInfo(number) },
             onCardShortTap = { item, anchor ->
-                if (isLockedByOther()) {
-                    blockedActionFeedback()
-                    return@QueueAdapter
-                }
-
                 if (replacingNumber != null && replacingNumber != item.number) {
                     cancelReplacingMode()
                 }
-
                 showStatusMenu(anchor, item)
             },
             onCardDoubleTap = { item, _ ->
-                if (isLockedByOther()) {
-                    blockedActionFeedback()
-                    return@QueueAdapter
-                }
-
                 saveCurrentQueueScrollPosition()
                 preserveScrollOnNextImeOpen = true
                 replacingNumber = item.number
@@ -246,8 +232,6 @@ class MainActivity : AppCompatActivity() {
         binding.queueRecycler.adapter = adapter
 
         inputUiController.setupInputPanel(binding.numberInput, binding.inputPanel)
-        setupReadOnlyInputGuards()
-        setupQueueReadOnlyTouchGuard()
         setupButtons()
         setupImeHandling()
         setupServerPanel()
@@ -267,8 +251,7 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     binding.queueRecycler.post {
                         if (!isTechMenuOpen && pendingScrollToBottom && list.isNotEmpty()) {
-                            val last = list.lastIndex
-                            layoutManager.scrollToPositionWithOffset(last, 0)
+                            layoutManager.scrollToPositionWithOffset(list.lastIndex, 0)
                         }
                     }
                 }
@@ -284,24 +267,6 @@ class MainActivity : AppCompatActivity() {
         viewModel.syncState.observe(this) { state ->
             currentSyncState = state
             updateSyncInfoTextColor(state)
-
-            if (pendingServerToggleSound) {
-                when (state) {
-                    SyncState.Connecting,
-                    SyncState.Off -> {
-                        uiSoundManager.playSync()
-                        feedback.ok()
-                        pendingServerToggleSound = false
-                    }
-
-                    SyncState.NoNetwork,
-                    SyncState.NeedMyCar -> {
-                        pendingServerToggleSound = false
-                    }
-
-                    else -> Unit
-                }
-            }
         }
 
         viewModel.syncMessage.observe(this) { message ->
@@ -343,20 +308,10 @@ class MainActivity : AppCompatActivity() {
         val touchHelper = ItemTouchHelper(
             QueueTouchHelperCallback(
                 onMoveForDrag = { from, to ->
-                    if (isLockedByOther()) {
-                        blockedActionFeedback()
-                        return@QueueTouchHelperCallback
-                    }
                     viewModel.moveForDrag(from, to)
                     adapter.moveForDrag(from, to)
                 },
                 onSwipedRight = { position ->
-                    if (isLockedByOther()) {
-                        adapter.notifyItemChanged(position)
-                        blockedActionFeedback()
-                        return@QueueTouchHelperCallback
-                    }
-
                     uiSoundManager.playDelete()
                     feedback.ok()
                     viewModel.removeAt(position)
@@ -366,12 +321,11 @@ class MainActivity : AppCompatActivity() {
                     isDragging = dragging
                 },
                 onDragEnded = { _, _ ->
-                    if (isLockedByOther()) return@QueueTouchHelperCallback
                     viewModel.commitDrag()
                     requestAutoCopyIfNeeded()
                 },
                 isQueueReadOnly = {
-                    isLockedByOther()
+                    false
                 }
             )
         )
@@ -399,10 +353,6 @@ class MainActivity : AppCompatActivity() {
 
             when {
                 releasedInsideInputPanel -> {
-                    if (isLockedByOther()) {
-                        blockedActionFeedback()
-                        return true
-                    }
                     inputTechController.onInputPanelReleased()
                 }
 
@@ -510,21 +460,11 @@ class MainActivity : AppCompatActivity() {
             this,
             object : GestureDetector.SimpleOnGestureListener() {
                 override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                    if (isLockedByOther()) {
-                        blockedActionFeedback()
-                        return true
-                    }
-
                     viewModel.onServerPanelClick()
                     return true
                 }
 
                 override fun onDoubleTap(e: MotionEvent): Boolean {
-                    if (isLockedByOther()) {
-                        blockedActionFeedback()
-                        return true
-                    }
-
                     if (!viewModel.canUploadCurrentQueue()) {
                         return true
                     }
@@ -537,8 +477,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onLongPress(e: MotionEvent) {
-                    pendingServerToggleSound = true
-                    viewModel.onServerPanelLongPress()
+                    // no action
                 }
             }
         )
@@ -551,14 +490,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateSyncInfoTextColor(state: SyncState) {
         val color = when (state) {
-            SyncState.OnlineFree -> 0xFF32D74B.toInt()
-            is SyncState.LockedByMe -> 0xFF3A86FF.toInt()
-            is SyncState.LockedByOther -> 0xFFFF4D4F.toInt()
             SyncState.Connecting -> 0xFF32D74B.toInt()
             SyncState.NoNetwork -> 0xFFFF4D4F.toInt()
-            is SyncState.OfferAvailable -> 0xFF32D74B.toInt()
-            SyncState.NeedMyCar -> Color.WHITE
             SyncState.Off -> Color.WHITE
+            SyncState.NeedMyCar -> Color.WHITE
+            SyncState.OnlineFree -> Color.WHITE
+            is SyncState.LockedByMe -> Color.WHITE
+            is SyncState.LockedByOther -> Color.WHITE
+            is SyncState.OfferAvailable -> 0xFF32D74B.toInt()
         }
 
         binding.infoText.setTextColor(color)
@@ -579,11 +518,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showStatusMenu(anchor: View, item: QueueItem) {
-        if (isLockedByOther()) {
-            blockedActionFeedback()
-            return
-        }
-
         val popupBinding = PopupStatusMenuBinding.inflate(layoutInflater)
 
         popupBinding.actionStandard.text = "STANDARD"
@@ -621,10 +555,6 @@ class MainActivity : AppCompatActivity() {
         popup.isClippingEnabled = true
 
         popupBinding.actionStandard.setOnClickListener {
-            if (isLockedByOther()) {
-                blockedActionFeedback()
-                return@setOnClickListener
-            }
             suppressNextQueueAutoScroll = true
             viewModel.setStatus(item.number, Status.NONE)
             requestAutoCopyIfNeeded()
@@ -632,10 +562,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         popupBinding.actionService.setOnClickListener {
-            if (isLockedByOther()) {
-                blockedActionFeedback()
-                return@setOnClickListener
-            }
             suppressNextQueueAutoScroll = true
             viewModel.setStatus(item.number, Status.SERVICE)
             requestAutoCopyIfNeeded()
@@ -643,10 +569,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         popupBinding.actionOffice.setOnClickListener {
-            if (isLockedByOther()) {
-                blockedActionFeedback()
-                return@setOnClickListener
-            }
             suppressNextQueueAutoScroll = true
             viewModel.setStatus(item.number, Status.OFFICE)
             requestAutoCopyIfNeeded()
@@ -654,10 +576,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         popupBinding.actionJurnieks.setOnClickListener {
-            if (isLockedByOther()) {
-                blockedActionFeedback()
-                return@setOnClickListener
-            }
             suppressNextQueueAutoScroll = true
             viewModel.setStatus(item.number, Status.JURNIEKS)
             requestAutoCopyIfNeeded()
@@ -761,19 +679,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnClearList.setOnClickListener {
-            if (isLockedByOther()) {
-                blockedActionFeedback()
-                return@setOnClickListener
-            }
             voiceSessionController.toggle()
         }
 
         binding.btnClearList.setOnLongClickListener {
-            if (isLockedByOther()) {
-                blockedActionFeedback()
-                return@setOnLongClickListener true
-            }
-
             val listIsEmpty = viewModel.queueItems.value.orEmpty().isEmpty()
 
             if (listIsEmpty) {
@@ -838,11 +747,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleManualSubmit() {
-        if (isLockedByOther()) {
-            blockedActionFeedback()
-            return
-        }
-
         val text = binding.numberInput.text?.toString()?.trim().orEmpty()
         val number = text.toIntOrNull()
 
@@ -882,7 +786,9 @@ class MainActivity : AppCompatActivity() {
                     showInputProblemDialog("INVALID NUMBER")
                 }
 
-                else -> {
+                QueueManager.OperationResult.InvalidIndex,
+                QueueManager.OperationResult.InvalidMove,
+                QueueManager.OperationResult.NumberNotFound -> {
                     uiSoundManager.playError()
                     feedback.error()
                     binding.numberInput.setText("")
@@ -920,12 +826,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleVoiceRecognizedNumber(number: Int) {
-        if (isLockedByOther()) {
-            blockedActionFeedback()
-            voiceSessionController.onNumberRejected()
-            return
-        }
-
         val result = viewModel.addNumber(number)
 
         when (result) {
@@ -1091,60 +991,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupReadOnlyInputGuards() {
-        val lockBlocker = View.OnTouchListener { _, event ->
-            if (!isLockedByOther()) return@OnTouchListener false
-
-            when (event.actionMasked) {
-                MotionEvent.ACTION_UP,
-                MotionEvent.ACTION_CANCEL -> blockedActionFeedback()
-            }
-            true
-        }
-
-        binding.inputPanel.setOnTouchListener(lockBlocker)
-        binding.numberInput.setOnTouchListener(lockBlocker)
-    }
-
-    private fun setupQueueReadOnlyTouchGuard() {
-        val gestureDetector = GestureDetector(
-            this,
-            object : GestureDetector.SimpleOnGestureListener() {
-                override fun onSingleTapUp(e: MotionEvent): Boolean {
-                    if (!isLockedByOther()) return false
-                    val child = binding.queueRecycler.findChildViewUnder(e.x, e.y) ?: return false
-                    blockedActionFeedback()
-                    return child != null
-                }
-
-                override fun onLongPress(e: MotionEvent) {
-                    if (!isLockedByOther()) return
-                    binding.queueRecycler.findChildViewUnder(e.x, e.y) ?: return
-                    blockedActionFeedback()
-                }
-            }
-        )
-
-        binding.queueRecycler.addOnItemTouchListener(
-            object : RecyclerView.SimpleOnItemTouchListener() {
-                override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
-                    if (!isLockedByOther()) return false
-                    val child = rv.findChildViewUnder(e.x, e.y) ?: return false
-                    val handled = gestureDetector.onTouchEvent(e)
-                    return handled && child != null
-                }
-
-                override fun onTouchEvent(rv: RecyclerView, e: MotionEvent) {
-                    if (isLockedByOther()) {
-                        gestureDetector.onTouchEvent(e)
-                    }
-                }
-
-                override fun onRequestDisallowInterceptTouchEvent(disallowIntercept: Boolean) = Unit
-            }
-        )
-    }
-
     private fun saveCurrentQueueScrollPosition() {
         val firstPos = layoutManager.findFirstVisibleItemPosition()
         val firstView = layoutManager.findViewByPosition(firstPos)
@@ -1163,35 +1009,6 @@ class MainActivity : AppCompatActivity() {
 
         inputUiController.lockManualInput(binding.numberInput)
         applyInputVisualState(false)
-    }
-
-    private fun isLockedByOther(): Boolean {
-        return currentSyncState is SyncState.LockedByOther
-    }
-
-    private fun blockedActionFeedback() {
-        val now = System.currentTimeMillis()
-        if (now - blockedFeedbackAtMs < 180L) return
-        blockedFeedbackAtMs = now
-        feedback.ok()
-        blinkInfoTextThreeTimes()
-    }
-
-    private fun blinkInfoTextThreeTimes() {
-        val token = ++blockedBlinkToken
-        val delays = longArrayOf(0L, 110L, 220L, 330L, 440L, 550L)
-        val alphas = floatArrayOf(0.25f, 1f, 0.25f, 1f, 0.25f, 1f)
-
-        for (i in delays.indices) {
-            binding.infoText.postDelayed({
-                if (token != blockedBlinkToken) return@postDelayed
-                if (!isLockedByOther()) {
-                    binding.infoText.alpha = 1f
-                    return@postDelayed
-                }
-                binding.infoText.alpha = alphas[i]
-            }, delays[i])
-        }
     }
 
     private fun isInsideInputPanel(rawX: Float, rawY: Float): Boolean {
