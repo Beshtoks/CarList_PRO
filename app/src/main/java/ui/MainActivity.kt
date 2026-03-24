@@ -815,10 +815,6 @@ class MainActivity : AppCompatActivity() {
             updateAutocopyButtonVisualState()
             uiSoundManager.playOk()
             feedback.ok()
-
-            if (autoCopyEnabled) {
-                requestAutoCopyIfNeeded()
-            }
             true
         }
 
