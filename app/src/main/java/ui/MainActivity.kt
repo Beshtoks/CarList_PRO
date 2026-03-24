@@ -459,8 +459,34 @@ class MainActivity : AppCompatActivity() {
         val gestureDetector = GestureDetector(
             this,
             object : GestureDetector.SimpleOnGestureListener() {
+
                 override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                    viewModel.onServerPanelClick()
+                    val titleView = TextView(this@MainActivity).apply {
+                        text = "DOWNLOAD"
+                        setTextColor(Color.WHITE)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+                        setTypeface(typeface, Typeface.BOLD)
+                        gravity = Gravity.START
+                        setPadding(dpToPx(4), dpToPx(4), dpToPx(4), 0)
+                    }
+
+                    val dialog = MaterialAlertDialogBuilder(this@MainActivity)
+                        .setCustomTitle(titleView)
+                        .setMessage("Download list from server?")
+                        .setPositiveButton("YES") { _, _ ->
+                            viewModel.onServerPanelClick()
+                        }
+                        .setNegativeButton("NO", null)
+                        .show()
+
+                    dialog.window?.setBackgroundDrawable(ColorDrawable(0xFF2A0033.toInt()))
+                    dialog.findViewById<TextView>(android.R.id.message)
+                        ?.setTextColor(Color.WHITE)
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                        ?.setTextColor(0xFFFF8A8A.toInt())
+                    dialog.getButton(AlertDialog.BUTTON_NEGATIVE)
+                        ?.setTextColor(0xFFFFFFFF.toInt())
+
                     return true
                 }
 
@@ -477,7 +503,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onLongPress(e: MotionEvent) {
-                    // no action
+                    viewModel.onServerPanelLongPress()
                 }
             }
         )
