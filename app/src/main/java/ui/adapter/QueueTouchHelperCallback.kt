@@ -7,7 +7,7 @@ class QueueTouchHelperCallback(
     private val onMoveForDrag: (from: Int, to: Int) -> Unit,
     private val onSwipedRight: (position: Int) -> Unit,
     private val onDragStateChanged: (dragging: Boolean) -> Unit,
-    private val onDragEnded: (from: Int, to: Int) -> Unit,
+    private val onDragEnded: (from: Int, to: Int, moved: Boolean) -> Unit,
     private val isQueueReadOnly: () -> Boolean
 ) : ItemTouchHelper.Callback() {
 
@@ -62,12 +62,12 @@ class QueueTouchHelperCallback(
 
         onDragStateChanged(false)
 
-        if (!isQueueReadOnly() &&
-            dragFrom != RecyclerView.NO_POSITION &&
-            dragTo != RecyclerView.NO_POSITION &&
-            dragFrom != dragTo
-        ) {
-            onDragEnded(dragFrom, dragTo)
+        val moved = dragFrom != RecyclerView.NO_POSITION &&
+                dragTo != RecyclerView.NO_POSITION &&
+                dragFrom != dragTo
+
+        if (dragFrom != RecyclerView.NO_POSITION && dragTo != RecyclerView.NO_POSITION) {
+            onDragEnded(dragFrom, dragTo, moved)
         }
 
         dragFrom = RecyclerView.NO_POSITION

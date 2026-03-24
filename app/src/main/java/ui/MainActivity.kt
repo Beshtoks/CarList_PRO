@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Rect
-import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -80,14 +79,15 @@ class MainActivity : AppCompatActivity() {
     private var lastAutoCopiedText = ""
     private var suppressNextQueueAutoScroll = false
     private var backgroundServiceStarted = false
+    private var pendingServerToggleSound = false
     private var currentSyncState: SyncState = SyncState.Off
+    private var blockedFeedbackAtMs = 0L
+    private var blockedBlinkToken = 0
     private var replacingNumber: Int? = null
     private var preserveScrollOnNextImeOpen = false
     private var preservedFirstVisiblePosition = 0
     private var preservedFirstVisibleTop = 0
     private var suppressReplaceCancelOnNextKeyboardHide = false
-    private var notificationPermissionRequestInFlight = false
-    private var notificationPermissionFlowHandled = false
 
     private val recordAudioPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -96,13 +96,8 @@ class MainActivity : AppCompatActivity() {
 
     private val postNotificationsPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            notificationPermissionRequestInFlight = false
-            notificationPermissionFlowHandled = true
-
             if (granted) {
                 ensureBackgroundMonitorServiceStarted()
-            } else {
-                backgroundServiceStarted = false
             }
         }
 
@@ -140,7 +135,6 @@ class MainActivity : AppCompatActivity() {
                 viewModel.onServerPanelDoubleTapUpload()
             },
             onCancelUpload = {
-                // nothing
             }
         )
 
@@ -206,12 +200,23 @@ class MainActivity : AppCompatActivity() {
         adapter = QueueAdapter(
             transportInfoProvider = { number -> viewModel.getTransportInfo(number) },
             onCardShortTap = { item, anchor ->
+                if (isLockedByOther()) {
+                    blockedActionFeedback()
+                    return@QueueAdapter
+                }
+
                 if (replacingNumber != null && replacingNumber != item.number) {
                     cancelReplacingMode()
                 }
+
                 showStatusMenu(anchor, item)
             },
             onCardDoubleTap = { item, _ ->
+                if (isLockedByOther()) {
+                    blockedActionFeedback()
+                    return@QueueAdapter
+                }
+
                 saveCurrentQueueScrollPosition()
                 preserveScrollOnNextImeOpen = true
                 replacingNumber = item.number
@@ -232,6 +237,8 @@ class MainActivity : AppCompatActivity() {
         binding.queueRecycler.adapter = adapter
 
         inputUiController.setupInputPanel(binding.numberInput, binding.inputPanel)
+        setupReadOnlyInputGuards()
+        setupQueueReadOnlyTouchGuard()
         setupButtons()
         setupImeHandling()
         setupServerPanel()
@@ -251,7 +258,8 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     binding.queueRecycler.post {
                         if (!isTechMenuOpen && pendingScrollToBottom && list.isNotEmpty()) {
-                            layoutManager.scrollToPositionWithOffset(list.lastIndex, 0)
+                            val last = list.lastIndex
+                            layoutManager.scrollToPositionWithOffset(last, 0)
                         }
                     }
                 }
@@ -267,6 +275,24 @@ class MainActivity : AppCompatActivity() {
         viewModel.syncState.observe(this) { state ->
             currentSyncState = state
             updateSyncInfoTextColor(state)
+
+            if (pendingServerToggleSound) {
+                when (state) {
+                    SyncState.Connecting,
+                    SyncState.Off -> {
+                        uiSoundManager.playSync()
+                        feedback.ok()
+                        pendingServerToggleSound = false
+                    }
+
+                    SyncState.NoNetwork,
+                    SyncState.NeedMyCar -> {
+                        pendingServerToggleSound = false
+                    }
+
+                    else -> Unit
+                }
+            }
         }
 
         viewModel.syncMessage.observe(this) { message ->
@@ -308,10 +334,20 @@ class MainActivity : AppCompatActivity() {
         val touchHelper = ItemTouchHelper(
             QueueTouchHelperCallback(
                 onMoveForDrag = { from, to ->
+                    if (isLockedByOther()) {
+                        blockedActionFeedback()
+                        return@QueueTouchHelperCallback
+                    }
                     viewModel.moveForDrag(from, to)
                     adapter.moveForDrag(from, to)
                 },
                 onSwipedRight = { position ->
+                    if (isLockedByOther()) {
+                        adapter.notifyItemChanged(position)
+                        blockedActionFeedback()
+                        return@QueueTouchHelperCallback
+                    }
+
                     uiSoundManager.playDelete()
                     feedback.ok()
                     viewModel.removeAt(position)
@@ -319,13 +355,21 @@ class MainActivity : AppCompatActivity() {
                 },
                 onDragStateChanged = { dragging ->
                     isDragging = dragging
+                    if (dragging) {
+                        viewModel.beginDragUndo()
+                    }
                 },
-                onDragEnded = { _, _ ->
-                    viewModel.commitDrag()
-                    requestAutoCopyIfNeeded()
+                onDragEnded = { _, _, moved ->
+                    if (isLockedByOther()) return@QueueTouchHelperCallback
+                    if (moved) {
+                        viewModel.commitDrag()
+                        requestAutoCopyIfNeeded()
+                    } else {
+                        viewModel.cancelDragUndo()
+                    }
                 },
                 isQueueReadOnly = {
-                    false
+                    isLockedByOther()
                 }
             )
         )
@@ -353,6 +397,10 @@ class MainActivity : AppCompatActivity() {
 
             when {
                 releasedInsideInputPanel -> {
+                    if (isLockedByOther()) {
+                        blockedActionFeedback()
+                        return true
+                    }
                     inputTechController.onInputPanelReleased()
                 }
 
@@ -386,30 +434,43 @@ class MainActivity : AppCompatActivity() {
         updateMyCarCounter(currentQueue)
     }
 
+    private fun setupReadOnlyInputGuards() {
+        binding.numberInput.setOnTouchListener { _, _ ->
+            isLockedByOther()
+        }
+
+        binding.numberInput.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus && isLockedByOther()) {
+                blockedActionFeedback()
+                inputUiController.lockManualInput(binding.numberInput)
+            }
+        }
+    }
+
+    private fun setupQueueReadOnlyTouchGuard() {
+        binding.queueRecycler.setOnTouchListener { _, event ->
+            if (event.actionMasked == MotionEvent.ACTION_DOWN && isLockedByOther()) {
+                blockedActionFeedback()
+                true
+            } else {
+                false
+            }
+        }
+    }
+
     private fun ensureNotificationsPermissionAndStartService() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            notificationPermissionFlowHandled = true
             ensureBackgroundMonitorServiceStarted()
             return
         }
 
-        when {
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED -> {
-                notificationPermissionFlowHandled = true
-                ensureBackgroundMonitorServiceStarted()
-            }
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
 
-            notificationPermissionRequestInFlight || notificationPermissionFlowHandled -> {
-                backgroundServiceStarted = false
-            }
-
-            else -> {
-                notificationPermissionRequestInFlight = true
-                postNotificationsPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
+        if (granted) {
+            ensureBackgroundMonitorServiceStarted()
         }
     }
 
@@ -425,10 +486,7 @@ class MainActivity : AppCompatActivity() {
         ) == PackageManager.PERMISSION_GRANTED
 
         if (granted) {
-            notificationPermissionFlowHandled = true
             ensureBackgroundMonitorServiceStarted()
-        } else {
-            backgroundServiceStarted = false
         }
     }
 
@@ -441,10 +499,7 @@ class MainActivity : AppCompatActivity() {
                 Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
 
-            if (!granted) {
-                backgroundServiceStarted = false
-                return
-            }
+            if (!granted) return
         }
 
         val intent = Intent(this, SyncForegroundService::class.java).apply {
@@ -465,7 +520,6 @@ class MainActivity : AppCompatActivity() {
                         text = "DOWNLOAD"
                         setTextColor(Color.WHITE)
                         setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
-                        setTypeface(typeface, Typeface.BOLD)
                         gravity = Gravity.START
                         setPadding(dpToPx(4), dpToPx(4), dpToPx(4), 0)
                     }
@@ -473,10 +527,10 @@ class MainActivity : AppCompatActivity() {
                     val dialog = MaterialAlertDialogBuilder(this@MainActivity)
                         .setCustomTitle(titleView)
                         .setMessage("Download list from server?")
-                        .setPositiveButton("YES") { _, _ ->
+                        .setPositiveButton("Yes") { _, _ ->
                             viewModel.onServerPanelClick()
                         }
-                        .setNegativeButton("NO", null)
+                        .setNegativeButton("No", null)
                         .show()
 
                     dialog.window?.setBackgroundDrawable(ColorDrawable(0xFF2A0033.toInt()))
@@ -492,6 +546,8 @@ class MainActivity : AppCompatActivity() {
 
                 override fun onDoubleTap(e: MotionEvent): Boolean {
                     if (!viewModel.canUploadCurrentQueue()) {
+                        uiSoundManager.playError()
+                        feedback.error()
                         return true
                     }
 
@@ -503,6 +559,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onLongPress(e: MotionEvent) {
+                    pendingServerToggleSound = true
                     viewModel.onServerPanelLongPress()
                 }
             }
@@ -528,6 +585,31 @@ class MainActivity : AppCompatActivity() {
 
         binding.infoText.setTextColor(color)
         binding.infoText.alpha = 1f
+    }
+
+    private fun isLockedByOther(): Boolean {
+        return currentSyncState is SyncState.LockedByOther
+    }
+
+    private fun blockedActionFeedback() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - blockedFeedbackAtMs < 300L) return
+        blockedFeedbackAtMs = now
+
+        uiSoundManager.playWarning()
+        feedback.warning()
+
+        val original = binding.infoText.text?.toString().orEmpty()
+        val token = ++blockedBlinkToken
+
+        binding.infoText.text = "LOCKED BY OTHER"
+        binding.infoText.setTextColor(0xFFFF5A5F.toInt())
+
+        binding.infoText.postDelayed({
+            if (blockedBlinkToken != token) return@postDelayed
+            binding.infoText.text = original
+            updateSyncInfoTextColor(currentSyncState)
+        }, 900L)
     }
 
     private fun openTechnicalMenuInternal() {
@@ -581,6 +663,10 @@ class MainActivity : AppCompatActivity() {
         popup.isClippingEnabled = true
 
         popupBinding.actionStandard.setOnClickListener {
+            if (isLockedByOther()) {
+                blockedActionFeedback()
+                return@setOnClickListener
+            }
             suppressNextQueueAutoScroll = true
             viewModel.setStatus(item.number, Status.NONE)
             requestAutoCopyIfNeeded()
@@ -588,6 +674,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         popupBinding.actionService.setOnClickListener {
+            if (isLockedByOther()) {
+                blockedActionFeedback()
+                return@setOnClickListener
+            }
             suppressNextQueueAutoScroll = true
             viewModel.setStatus(item.number, Status.SERVICE)
             requestAutoCopyIfNeeded()
@@ -595,6 +685,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         popupBinding.actionOffice.setOnClickListener {
+            if (isLockedByOther()) {
+                blockedActionFeedback()
+                return@setOnClickListener
+            }
             suppressNextQueueAutoScroll = true
             viewModel.setStatus(item.number, Status.OFFICE)
             requestAutoCopyIfNeeded()
@@ -602,6 +696,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         popupBinding.actionJurnieks.setOnClickListener {
+            if (isLockedByOther()) {
+                blockedActionFeedback()
+                return@setOnClickListener
+            }
             suppressNextQueueAutoScroll = true
             viewModel.setStatus(item.number, Status.JURNIEKS)
             requestAutoCopyIfNeeded()
@@ -687,7 +785,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupButtons() {
-        updateAutocopyButtonText()
+        updateAutocopyButtonVisualState()
+
+        binding.btnUndo.setOnClickListener {
+            if (isLockedByOther()) {
+                blockedActionFeedback()
+                return@setOnClickListener
+            }
+
+            val restored = viewModel.undo()
+            if (restored) {
+                uiSoundManager.playOk()
+                feedback.ok()
+                requestAutoCopyIfNeeded()
+            } else {
+                uiSoundManager.playError()
+                feedback.error()
+            }
+        }
 
         binding.btnAutocopy.setOnClickListener {
             val list = viewModel.queueItems.value.orEmpty()
@@ -698,17 +813,30 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnAutocopy.setOnLongClickListener {
             autoCopyEnabled = !autoCopyEnabled
-            updateAutocopyButtonText()
+            updateAutocopyButtonVisualState()
             uiSoundManager.playOk()
             feedback.ok()
+
+            if (autoCopyEnabled) {
+                requestAutoCopyIfNeeded()
+            }
             true
         }
 
         binding.btnClearList.setOnClickListener {
+            if (isLockedByOther()) {
+                blockedActionFeedback()
+                return@setOnClickListener
+            }
             voiceSessionController.toggle()
         }
 
         binding.btnClearList.setOnLongClickListener {
+            if (isLockedByOther()) {
+                blockedActionFeedback()
+                return@setOnLongClickListener true
+            }
+
             val listIsEmpty = viewModel.queueItems.value.orEmpty().isEmpty()
 
             if (listIsEmpty) {
@@ -719,17 +847,8 @@ class MainActivity : AppCompatActivity() {
                 return@setOnLongClickListener true
             }
 
-            val titleView = TextView(this).apply {
-                text = "CLEAR LIST"
-                setTextColor(Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
-                setTypeface(typeface, Typeface.BOLD)
-                gravity = Gravity.START
-                setPadding(dpToPx(4), dpToPx(4), dpToPx(4), 0)
-            }
-
             val dialog = MaterialAlertDialogBuilder(this)
-                .setCustomTitle(titleView)
+                .setTitle("CLEAR LIST")
                 .setMessage("Are you sure?")
                 .setPositiveButton("YES") { _, _ ->
                     viewModel.clear()
@@ -741,6 +860,8 @@ class MainActivity : AppCompatActivity() {
                 .show()
 
             dialog.window?.setBackgroundDrawable(ColorDrawable(0xFF2A0033.toInt()))
+            dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)
+                ?.setTextColor(Color.WHITE)
             dialog.findViewById<TextView>(android.R.id.message)
                 ?.setTextColor(Color.WHITE)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(0xFFFF8A8A.toInt())
@@ -768,11 +889,23 @@ class MainActivity : AppCompatActivity() {
         binding.btnClearList.setBackgroundResource(R.drawable.bg_button_clear_red_3d)
     }
 
-    private fun updateAutocopyButtonText() {
-        binding.btnAutocopy.text = if (autoCopyEnabled) "AUTOCOPY ON" else "AUTOCOPY OFF"
+    private fun updateAutocopyButtonVisualState() {
+        binding.btnAutocopy.text = "COPY"
+        binding.btnAutocopy.backgroundTintList = null
+
+        if (autoCopyEnabled) {
+            binding.btnAutocopy.setBackgroundResource(R.drawable.bg_button_clear_green_3d)
+        } else {
+            binding.btnAutocopy.setBackgroundResource(R.drawable.bg_button_autocopy_3d)
+        }
     }
 
     private fun handleManualSubmit() {
+        if (isLockedByOther()) {
+            blockedActionFeedback()
+            return
+        }
+
         val text = binding.numberInput.text?.toString()?.trim().orEmpty()
         val number = text.toIntOrNull()
 
@@ -812,9 +945,7 @@ class MainActivity : AppCompatActivity() {
                     showInputProblemDialog("INVALID NUMBER")
                 }
 
-                QueueManager.OperationResult.InvalidIndex,
-                QueueManager.OperationResult.InvalidMove,
-                QueueManager.OperationResult.NumberNotFound -> {
+                else -> {
                     uiSoundManager.playError()
                     feedback.error()
                     binding.numberInput.setText("")
@@ -852,6 +983,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleVoiceRecognizedNumber(number: Int) {
+        if (isLockedByOther()) {
+            blockedActionFeedback()
+            voiceSessionController.onNumberRejected()
+            return
+        }
+
         val result = viewModel.addNumber(number)
 
         when (result) {
@@ -906,7 +1043,7 @@ class MainActivity : AppCompatActivity() {
             setTextColor(0xFFFF4444.toInt())
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
             gravity = Gravity.CENTER
-            setTypeface(typeface, Typeface.BOLD)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
         }
 
         val messageView = TextView(this).apply {
@@ -1006,6 +1143,7 @@ class MainActivity : AppCompatActivity() {
                                 preservedFirstVisiblePosition,
                                 preservedFirstVisibleTop
                             )
+                            preserveScrollOnNextImeOpen = false
                         } else if (wasImeVisible) {
                             layoutManager.scrollToPositionWithOffset(0, 0)
                         }

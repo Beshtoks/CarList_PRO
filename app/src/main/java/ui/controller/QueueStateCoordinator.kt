@@ -25,6 +25,7 @@ class QueueStateCoordinator(
             queueManager.validateAgainstRegistry { registryStore.isAllowed(it) }
         }
 
+        queueManager.clearUndoHistory()
         publishSnapshot(false)
     }
 
@@ -43,7 +44,7 @@ class QueueStateCoordinator(
             snapshot = remoteQueue,
             isNumberAllowedByRegistry = { true }
         )
-
+        queueManager.clearUndoHistory()
         publishSnapshot(false)
     }
 }

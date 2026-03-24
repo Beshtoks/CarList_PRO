@@ -162,24 +162,53 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnAutocopy"
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:background="@drawable/bg_button_autocopy_3d"
-            android:elevation="0dp"
-            android:stateListAnimator="@null"
-            android:text="AUTOCOPY ON"
-            android:textAllCaps="true"
-            android:textColor="#E9F3FF"
-            android:textStyle="bold"
-            android:textSize="13sp"
-            app:backgroundTint="@null"
-            app:cornerRadius="10dp"
-            app:iconPadding="0dp"
-            app:rippleColor="#33A9D7FF"
-            app:strokeWidth="0dp" />
+            android:orientation="horizontal"
+            android:weightSum="2">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnUndo"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@drawable/bg_button_autocopy_3d"
+                android:elevation="0dp"
+                android:stateListAnimator="@null"
+                android:text="UNDO"
+                android:textAllCaps="true"
+                android:textColor="#E9F3FF"
+                android:textStyle="bold"
+                android:textSize="13sp"
+                app:backgroundTint="@null"
+                app:cornerRadius="10dp"
+                app:iconPadding="0dp"
+                app:rippleColor="#33A9D7FF"
+                app:strokeWidth="0dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnAutocopy"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_button_autocopy_3d"
+                android:elevation="0dp"
+                android:stateListAnimator="@null"
+                android:text="COPY"
+                android:textAllCaps="true"
+                android:textColor="#E9F3FF"
+                android:textStyle="bold"
+                android:textSize="13sp"
+                app:backgroundTint="@null"
+                app:cornerRadius="10dp"
+                app:iconPadding="0dp"
+                app:rippleColor="#33A9D7FF"
+                app:strokeWidth="0dp" />
+
+        </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnClearList"

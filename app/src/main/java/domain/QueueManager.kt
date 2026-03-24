@@ -25,13 +25,18 @@ class QueueManager {
     )
 
     private val items: MutableList<QueueItem> = mutableListOf()
+    private val undoHistory = ArrayDeque<List<QueueItem>>()
+    private var dragSnapshot: List<QueueItem>? = null
 
     fun snapshot(): List<QueueItem> = items.toList()
 
     fun size(): Int = items.size
 
     fun clear(): OperationResult {
+        if (items.isEmpty()) return OperationResult.Success
+        saveUndoSnapshot(items.toList())
         items.clear()
+        dragSnapshot = null
         return OperationResult.Success
     }
 
@@ -48,6 +53,7 @@ class QueueManager {
             return AddResult.NotInRegistry
         }
 
+        saveUndoSnapshot(items.toList())
         items.add(QueueItem(number = number, status = Status.NONE))
 
         normalizeQueueAfterStructuralChange()
@@ -59,6 +65,7 @@ class QueueManager {
     fun removeAt(index: Int): OperationResult {
         if (index !in items.indices) return OperationResult.InvalidIndex
 
+        saveUndoSnapshot(items.toList())
         items.removeAt(index)
         normalizeQueueAfterStructuralChange()
 
@@ -69,10 +76,17 @@ class QueueManager {
         val idx = items.indexOfFirst { it.number == number }
         if (idx == -1) return OperationResult.NumberNotFound
 
+        saveUndoSnapshot(items.toList())
         items.removeAt(idx)
         normalizeQueueAfterStructuralChange()
 
         return OperationResult.Success
+    }
+
+    fun beginDragUndo() {
+        if (dragSnapshot == null) {
+            dragSnapshot = items.toList()
+        }
     }
 
     fun move(from: Int, to: Int): OperationResult {
@@ -97,6 +111,19 @@ class QueueManager {
         return OperationResult.Success
     }
 
+    fun commitDragUndo() {
+        val beforeDrag = dragSnapshot
+        dragSnapshot = null
+
+        if (beforeDrag != null && beforeDrag != items.toList()) {
+            saveUndoSnapshot(beforeDrag)
+        }
+    }
+
+    fun cancelDragUndo() {
+        dragSnapshot = null
+    }
+
     fun setStatus(number: Int, status: Status): OperationResult {
 
         val idx = items.indexOfFirst { it.number == number }
@@ -109,6 +136,7 @@ class QueueManager {
             return OperationResult.Success
         }
 
+        saveUndoSnapshot(items.toList())
         items[idx] = current.copy(status = status)
 
         normalizeQueueAfterStructuralChange()
@@ -137,6 +165,9 @@ class QueueManager {
         }
 
         val current = items[oldIndex]
+        if (current.number == newNumber) return OperationResult.Success
+
+        saveUndoSnapshot(items.toList())
         items[oldIndex] = current.copy(number = newNumber)
 
         normalizeQueueAfterStructuralChange()
@@ -148,6 +179,7 @@ class QueueManager {
         isNumberAllowedByRegistry: (Int) -> Boolean
     ): ValidationResult {
 
+        val before = items.toList()
         val removed = mutableListOf<Int>()
 
         val iterator = items.iterator()
@@ -160,6 +192,10 @@ class QueueManager {
         }
 
         normalizeQueueAfterStructuralChange()
+
+        if (removed.isNotEmpty()) {
+            saveUndoSnapshot(before)
+        }
 
         return ValidationResult(
             removedNumbers = removed,
@@ -188,31 +224,52 @@ class QueueManager {
 
         items.clear()
         items.addAll(restored)
+        dragSnapshot = null
 
         normalizeQueueAfterStructuralChange()
 
         return OperationResult.Success
     }
 
+    fun undo(): Boolean {
+        val previous = undoHistory.removeLastOrNull() ?: return false
+
+        items.clear()
+        items.addAll(previous)
+        dragSnapshot = null
+        normalizeQueueAfterStructuralChange()
+        return true
+    }
+
+    fun clearUndoHistory() {
+        undoHistory.clear()
+        dragSnapshot = null
+    }
+
+    private fun saveUndoSnapshot(snapshot: List<QueueItem>) {
+        if (snapshot == items.toList()) return
+
+        val last = undoHistory.lastOrNull()
+        if (last == snapshot) return
+
+        undoHistory.addLast(snapshot)
+        while (undoHistory.size > 50) {
+            undoHistory.removeFirst()
+        }
+    }
+
     private fun normalizeQueueAfterStructuralChange() {
         if (items.isEmpty()) return
 
-        // 1. ЖЁСТКОЕ ПРАВИЛО:
-        // если на позиции 0 оказался JURNIEKS — сразу делаем NONE.
         val first = items[0]
         if (first.status == Status.JURNIEKS) {
             items[0] = first.copy(status = Status.NONE)
         }
 
-        // 2. После возможного сброса JURNIEKS заново смотрим первую карточку.
         val updatedFirst = items[0]
 
-        // 3. Если первая карточка уже активная — больше ничего не делаем.
-        // NONE и JURNIEKS активные, но JURNIEKS уже выше был принудительно сброшен в NONE.
         if (!isPassiveStatus(updatedFirst.status)) return
 
-        // 4. Если на первом месте пассивная карточка (SERVICE/OFFICE),
-        // поднимаем наверх первую активную карточку ниже по списку.
         val activeIndex = items.indexOfFirst { it.isActive }
 
         if (activeIndex <= 0) return
@@ -220,8 +277,6 @@ class QueueManager {
         val activeItem = items.removeAt(activeIndex)
         items.add(0, activeItem)
 
-        // 5. На всякий случай ещё раз страхуем правило:
-        // если после перестановки на 0 вдруг оказался JURNIEKS — сбрасываем в NONE.
         val firstAfterMove = items[0]
         if (firstAfterMove.status == Status.JURNIEKS) {
             items[0] = firstAfterMove.copy(status = Status.NONE)

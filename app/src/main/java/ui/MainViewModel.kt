@@ -39,7 +39,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _syncState = MutableLiveData<SyncState>(SyncState.Off)
     val syncState: LiveData<SyncState> = _syncState
 
-    private val _syncPanelText = MutableLiveData("SYNC --")
+    private val _syncPanelText = MutableLiveData("SYNC OFF")
     val syncPanelText: LiveData<String> = _syncPanelText
 
     private val _syncMessage = MutableLiveData<String?>(null)
@@ -115,6 +115,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         )
 
         queueStateCoordinator.initializeFromStorage()
+        queueManager.clearUndoHistory()
         syncCoordinator.initialize()
     }
 
@@ -152,12 +153,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return queueEditController.clear()
     }
 
+    fun beginDragUndo() {
+        queueManager.beginDragUndo()
+    }
+
+    fun cancelDragUndo() {
+        queueManager.cancelDragUndo()
+    }
+
     fun moveForDrag(from: Int, to: Int): QueueManager.OperationResult {
         return queueEditController.moveForDrag(from, to)
     }
 
     fun commitDrag() {
         queueEditController.commitDrag()
+    }
+
+    fun undo(): Boolean {
+        if (syncCoordinator.isQueueEditingBlocked()) {
+            _syncMessage.postValue("Список сейчас изменяет другой телефон.")
+            return false
+        }
+
+        val restored = queueManager.undo()
+        if (restored) {
+            queueStateCoordinator.publishSnapshot(true)
+        }
+        return restored
     }
 
     fun validateQueueAgainstRegistry(): QueueManager.ValidationResult {
