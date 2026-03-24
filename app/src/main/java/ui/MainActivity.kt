@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Rect
+import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -520,6 +521,7 @@ class MainActivity : AppCompatActivity() {
                         text = "DOWNLOAD"
                         setTextColor(Color.WHITE)
                         setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+                        setTypeface(typeface, Typeface.BOLD)
                         gravity = Gravity.START
                         setPadding(dpToPx(4), dpToPx(4), dpToPx(4), 0)
                     }
@@ -798,9 +800,6 @@ class MainActivity : AppCompatActivity() {
                 uiSoundManager.playOk()
                 feedback.ok()
                 requestAutoCopyIfNeeded()
-            } else {
-                uiSoundManager.playError()
-                feedback.error()
             }
         }
 
@@ -847,8 +846,17 @@ class MainActivity : AppCompatActivity() {
                 return@setOnLongClickListener true
             }
 
+            val titleView = TextView(this).apply {
+                text = "CLEAR LIST"
+                setTextColor(Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+                setTypeface(typeface, Typeface.BOLD)
+                gravity = Gravity.START
+                setPadding(dpToPx(4), dpToPx(4), dpToPx(4), 0)
+            }
+
             val dialog = MaterialAlertDialogBuilder(this)
-                .setTitle("CLEAR LIST")
+                .setCustomTitle(titleView)
                 .setMessage("Are you sure?")
                 .setPositiveButton("YES") { _, _ ->
                     viewModel.clear()
@@ -860,8 +868,6 @@ class MainActivity : AppCompatActivity() {
                 .show()
 
             dialog.window?.setBackgroundDrawable(ColorDrawable(0xFF2A0033.toInt()))
-            dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)
-                ?.setTextColor(Color.WHITE)
             dialog.findViewById<TextView>(android.R.id.message)
                 ?.setTextColor(Color.WHITE)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(0xFFFF8A8A.toInt())
@@ -1043,7 +1049,7 @@ class MainActivity : AppCompatActivity() {
             setTextColor(0xFFFF4444.toInt())
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
             gravity = Gravity.CENTER
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTypeface(typeface, Typeface.BOLD)
         }
 
         val messageView = TextView(this).apply {
