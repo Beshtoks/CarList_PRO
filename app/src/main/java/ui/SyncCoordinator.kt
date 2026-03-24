@@ -152,7 +152,16 @@ class SyncCoordinator(
 
     private val panelRefreshRunnable = object : Runnable {
         override fun run() {
-            updatePanelText()
+            // 🔴 ВАЖНО:
+            // панель должна показывать последнее серверное состояние,
+            // даже если пользователь ничего не скачивал.
+            // Поэтому периодически подтягиваем snapshot с сервера тихо.
+            if (networkMonitor.isCurrentlyOnline() && !operationInProgress) {
+                refreshRemoteInfoSilently()
+            } else {
+                updatePanelText()
+            }
+
             mainHandler.postDelayed(this, PANEL_REFRESH_INTERVAL_MS)
         }
     }
@@ -173,11 +182,6 @@ class SyncCoordinator(
 
         if (!onlineNow) {
             refreshUiState(ignoreOfflineDuringStartupGrace = true)
-
-            if (!isWithinStartupNetworkGrace()) {
-                networkAlertVisible = true
-                onNetworkAlertVisible(true)
-            }
             updatePanelText()
             return
         }
@@ -490,7 +494,7 @@ class SyncCoordinator(
 
     companion object {
         private const val NETWORK_POLL_INTERVAL_MS = 1_000L
-        private const val PANEL_REFRESH_INTERVAL_MS = 30_000L
+        private const val PANEL_REFRESH_INTERVAL_MS = 5_000L
         private const val OPERATION_START_DELAY_MS = 350L
         private const val UPLOAD_REFRESH_REQUEST_DELAY_MS = 900L
         private const val SERVER_LIST_TTL_MS = 300 * 60 * 1000L
