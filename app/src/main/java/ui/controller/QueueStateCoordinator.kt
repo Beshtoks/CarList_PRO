@@ -17,16 +17,14 @@ class QueueStateCoordinator(
         val snapshot = queueStateStore.load()
 
         if (snapshot.isNotEmpty()) {
+            // 🔴 ВАЖНО:
+            // локально сохранённый список при старте восстанавливаем целиком,
+            // без фильтрации по registry.
+            // Иначе на чистой установке скачанный список пропадает после перезапуска.
             queueManager.restoreFromSnapshot(
                 snapshot = snapshot,
-                isNumberAllowedByRegistry = { number ->
-                    registryStore.isAllowed(number)
-                }
+                isNumberAllowedByRegistry = { true }
             )
-
-            queueManager.validateAgainstRegistry { number ->
-                registryStore.isAllowed(number)
-            }
         }
 
         queueManager.clearUndoHistory()
@@ -47,27 +45,21 @@ class QueueStateCoordinator(
     fun applyRemoteQueue(remoteQueue: List<QueueItem>) {
         val currentSnapshot = queueManager.snapshot()
 
-        // 🔴 КЛЮЧЕВОЙ ФИКС:
-        // если удалённый снимок равен текущему локальному состоянию,
-        // это, скорее всего, эхо нашего же собственного обновления.
-        // В этом случае НЕ трогаем очередь и НЕ чистим undo history.
+        // Если это эхо нашего же собственного состояния — ничего не делаем,
+        // чтобы не сбивать undo history.
         if (currentSnapshot == remoteQueue) {
             return
         }
 
+        // 🔴 Серверный список тоже принимаем целиком,
+        // без фильтрации по локальному registry.
         queueManager.restoreFromSnapshot(
             snapshot = remoteQueue,
-            isNumberAllowedByRegistry = { number ->
-                registryStore.isAllowed(number)
-            }
+            isNumberAllowedByRegistry = { true }
         )
 
-        queueManager.validateAgainstRegistry { number ->
-            registryStore.isAllowed(number)
-        }
-
-        // Чистим undo только когда реально применили ЧУЖОЕ/НОВОЕ состояние,
-        // а не собственное локальное эхо.
+        // После реального внешнего списка undo-историю очищаем,
+        // потому что это уже новая внешняя база.
         queueManager.clearUndoHistory()
         publishSnapshot(false)
     }

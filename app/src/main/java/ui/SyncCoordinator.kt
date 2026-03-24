@@ -2,6 +2,7 @@ package com.carlist.pro.ui.sync
 
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import com.carlist.pro.data.DriverRegistryStore
 import com.carlist.pro.data.sync.FirebaseSyncRepository
 import com.carlist.pro.data.sync.NetworkMonitor
@@ -41,6 +42,10 @@ class SyncCoordinator(
     private var pendingUploadAuthorNumber: Int? = null
     private var pendingUploadQueue: List<QueueItem> = emptyList()
     private var uploadCommandSent = false
+
+    // Даём Android короткое время подтвердить сеть на старте,
+    // чтобы не показывать ложное предупреждение сразу после запуска.
+    private var startupNetworkGraceUntilMs: Long = 0L
 
     private val repositoryCallback = object : FirebaseSyncRepository.Callback {
 
@@ -153,6 +158,8 @@ class SyncCoordinator(
     }
 
     fun initialize() {
+        startupNetworkGraceUntilMs = SystemClock.elapsedRealtime() + STARTUP_NETWORK_GRACE_MS
+
         networkMonitor.start { isOnline ->
             handleNetworkChanged(isOnline)
         }
@@ -165,9 +172,12 @@ class SyncCoordinator(
         lastKnownOnline = onlineNow
 
         if (!onlineNow) {
-            networkAlertVisible = true
-            onNetworkAlertVisible(true)
-            setUiState(SyncState.NoNetwork)
+            refreshUiState(ignoreOfflineDuringStartupGrace = true)
+
+            if (!isWithinStartupNetworkGrace()) {
+                networkAlertVisible = true
+                onNetworkAlertVisible(true)
+            }
             updatePanelText()
             return
         }
@@ -341,8 +351,13 @@ class SyncCoordinator(
         refreshUiState()
     }
 
-    private fun refreshUiState() {
-        val state = if (!networkMonitor.isCurrentlyOnline()) {
+    private fun refreshUiState(ignoreOfflineDuringStartupGrace: Boolean = false) {
+        val offlineButGraceActive =
+            !networkMonitor.isCurrentlyOnline() &&
+                    ignoreOfflineDuringStartupGrace &&
+                    isWithinStartupNetworkGrace()
+
+        val state = if (!offlineButGraceActive && !networkMonitor.isCurrentlyOnline()) {
             SyncState.NoNetwork
         } else {
             SyncState.Off
@@ -360,6 +375,11 @@ class SyncCoordinator(
             clearPendingUploadState()
             syncRepository.stop()
 
+            if (isWithinStartupNetworkGrace()) {
+                refreshUiState(ignoreOfflineDuringStartupGrace = true)
+                return
+            }
+
             if (!networkAlertVisible) {
                 networkAlertVisible = true
                 onNetworkAlertVisible(true)
@@ -368,6 +388,9 @@ class SyncCoordinator(
             setUiState(SyncState.NoNetwork)
             return
         }
+
+        // Сеть подтверждена — стартовый grace больше не нужен.
+        startupNetworkGraceUntilMs = 0L
 
         if (networkAlertVisible) {
             networkAlertVisible = false
@@ -460,6 +483,11 @@ class SyncCoordinator(
         return "SYNC $author · ${minutes}m"
     }
 
+    private fun isWithinStartupNetworkGrace(): Boolean {
+        return startupNetworkGraceUntilMs != 0L &&
+                SystemClock.elapsedRealtime() < startupNetworkGraceUntilMs
+    }
+
     companion object {
         private const val NETWORK_POLL_INTERVAL_MS = 1_000L
         private const val PANEL_REFRESH_INTERVAL_MS = 30_000L
@@ -467,5 +495,6 @@ class SyncCoordinator(
         private const val UPLOAD_REFRESH_REQUEST_DELAY_MS = 900L
         private const val SERVER_LIST_TTL_MS = 300 * 60 * 1000L
         private const val PANEL_NO_LIST = "SYNC --"
+        private const val STARTUP_NETWORK_GRACE_MS = 2500L
     }
 }
