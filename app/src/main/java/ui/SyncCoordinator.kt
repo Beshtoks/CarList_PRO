@@ -43,21 +43,24 @@ class SyncCoordinator(
     private var pendingUploadQueue: List<QueueItem> = emptyList()
     private var uploadCommandSent = false
 
-    // Даём Android короткое время подтвердить сеть на старте/возврате,
-    // чтобы не показывать ложное предупреждение сразу.
+    // Мягкое окно старта/возврата: сеть может кратко не подтверждаться,
+    // но предупреждение показывать нельзя.
     private var startupNetworkGraceUntilMs: Long = 0L
 
-    // Защита от первого ложного offline callback.
-    private var hasReceivedFirstNetworkCallback = false
+    // До первого подтверждённого online после старта/возврата
+    // alert запрещён полностью.
+    private var suppressNetworkAlertUntilOnline = false
 
     private val repositoryCallback = object : FirebaseSyncRepository.Callback {
 
         override fun onSyncStateChanged(state: SyncState) {
             when (currentOperation) {
-                OperationMode.IDLE -> refreshUiState(ignoreOfflineDuringStartupGrace = true)
+                OperationMode.IDLE -> {
+                    refreshUiState(ignoreOfflineDuringStartupGrace = true)
+                }
 
                 OperationMode.REFRESH -> {
-                    // Тихая проверка: не дёргаем табло в CONNECTING.
+                    // Тихая проверка панели: не дёргаем табло в CONNECTING.
                     refreshUiState(ignoreOfflineDuringStartupGrace = true)
                 }
 
@@ -171,8 +174,7 @@ class SyncCoordinator(
     }
 
     fun initialize() {
-        startupNetworkGraceUntilMs = SystemClock.elapsedRealtime() + STARTUP_NETWORK_GRACE_MS
-        hasReceivedFirstNetworkCallback = false
+        beginStartupProtection()
 
         networkMonitor.start { isOnline ->
             handleNetworkChanged(isOnline)
@@ -191,13 +193,13 @@ class SyncCoordinator(
             return
         }
 
+        suppressNetworkAlertUntilOnline = false
         refreshUiState(ignoreOfflineDuringStartupGrace = true)
         refreshRemoteInfoSilently()
     }
 
     fun onAppForeground() {
-        startupNetworkGraceUntilMs = SystemClock.elapsedRealtime() + STARTUP_NETWORK_GRACE_MS
-        hasReceivedFirstNetworkCallback = false
+        beginStartupProtection()
         refreshUiState(ignoreOfflineDuringStartupGrace = true)
         updatePanelText()
     }
@@ -387,15 +389,6 @@ class SyncCoordinator(
     }
 
     private fun handleNetworkChanged(isOnline: Boolean) {
-        // Игнорируем первый ложный offline callback в пределах grace-периода.
-        if (!hasReceivedFirstNetworkCallback) {
-            hasReceivedFirstNetworkCallback = true
-            if (!isOnline && isWithinStartupNetworkGrace()) {
-                refreshUiState(ignoreOfflineDuringStartupGrace = true)
-                return
-            }
-        }
-
         lastKnownOnline = isOnline
 
         if (!isOnline) {
@@ -405,8 +398,15 @@ class SyncCoordinator(
             clearPendingUploadState()
             syncRepository.stop()
 
-            // Во время стартового grace вообще не показываем alert.
+            // Во время защитного окна старт/возврат — никакого alert.
             if (isWithinStartupNetworkGrace()) {
+                refreshUiState(ignoreOfflineDuringStartupGrace = true)
+                return
+            }
+
+            // Пока не было подтверждённого online после старта/возврата,
+            // alert тоже не показываем.
+            if (suppressNetworkAlertUntilOnline) {
                 refreshUiState(ignoreOfflineDuringStartupGrace = true)
                 return
             }
@@ -420,8 +420,9 @@ class SyncCoordinator(
             return
         }
 
-        // Сеть подтверждена — стартовый grace больше не нужен.
+        // Сеть подтверждена.
         startupNetworkGraceUntilMs = 0L
+        suppressNetworkAlertUntilOnline = false
 
         if (networkAlertVisible) {
             networkAlertVisible = false
@@ -441,6 +442,11 @@ class SyncCoordinator(
             onNetworkAlertVisible(true)
         }
         setUiState(SyncState.NoNetwork)
+    }
+
+    private fun beginStartupProtection() {
+        startupNetworkGraceUntilMs = SystemClock.elapsedRealtime() + STARTUP_NETWORK_GRACE_MS
+        suppressNetworkAlertUntilOnline = true
     }
 
     private fun isSnapshotUsable(
