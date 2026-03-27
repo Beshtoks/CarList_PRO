@@ -12,6 +12,10 @@ class QueueEditController(
     private val publishSnapshot: (Boolean) -> Unit
 ) {
 
+    private companion object {
+        const val BLOCKED_MESSAGE = "List is currently being edited by another device."
+    }
+
     fun addNumber(numberOrNull: Int?): QueueManager.AddResult {
         val blocked = guardQueueEditing()
         if (blocked != null) return blocked
@@ -88,13 +92,13 @@ class QueueEditController(
 
     private fun guardQueueEditing(): QueueManager.AddResult? {
         if (!isQueueEditingBlocked()) return null
-        onBlockedMessage("Список сейчас изменяет другой телефон.")
+        onBlockedMessage(BLOCKED_MESSAGE)
         return QueueManager.AddResult.DuplicateInQueue
     }
 
     private fun guardQueueEditingOperation(): QueueManager.OperationResult? {
         if (!isQueueEditingBlocked()) return null
-        onBlockedMessage("Список сейчас изменяет другой телефон.")
+        onBlockedMessage(BLOCKED_MESSAGE)
         return QueueManager.OperationResult.InvalidMove
     }
 }

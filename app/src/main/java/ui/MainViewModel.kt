@@ -175,7 +175,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun undo(): Boolean {
         if (syncCoordinator.isQueueEditingBlocked()) {
-            _syncMessage.postValue("Список сейчас изменяет другой телефон.")
+            _syncMessage.postValue("List is currently being edited by another device.")
             return false
         }
 
