@@ -47,40 +47,17 @@ class SyncCoordinator(
     // чтобы не показывать ложное предупреждение сразу.
     private var startupNetworkGraceUntilMs: Long = 0L
 
-    // Подтверждение офлайна с задержкой, чтобы отсечь ложные вспышки.
-    private var offlineConfirmationPending = false
-
-    private val confirmOfflineRunnable = Runnable {
-        offlineConfirmationPending = false
-
-        if (networkMonitor.isCurrentlyOnline()) {
-            refreshUiState(ignoreOfflineDuringStartupGrace = true)
-            return@Runnable
-        }
-
-        if (isWithinStartupNetworkGrace()) {
-            refreshUiState(ignoreOfflineDuringStartupGrace = true)
-            return@Runnable
-        }
-
-        if (!networkAlertVisible) {
-            networkAlertVisible = true
-            onNetworkAlertVisible(true)
-        }
-
-        setUiState(SyncState.NoNetwork)
-    }
+    // Защита от первого ложного offline callback.
+    private var hasReceivedFirstNetworkCallback = false
 
     private val repositoryCallback = object : FirebaseSyncRepository.Callback {
 
         override fun onSyncStateChanged(state: SyncState) {
             when (currentOperation) {
-                OperationMode.IDLE -> {
-                    refreshUiState(ignoreOfflineDuringStartupGrace = true)
-                }
+                OperationMode.IDLE -> refreshUiState(ignoreOfflineDuringStartupGrace = true)
 
                 OperationMode.REFRESH -> {
-                    // Тихая проверка панели: никаких CONNECTING / NO NETWORK на табло.
+                    // Тихая проверка: не дёргаем табло в CONNECTING.
                     refreshUiState(ignoreOfflineDuringStartupGrace = true)
                 }
 
@@ -195,7 +172,7 @@ class SyncCoordinator(
 
     fun initialize() {
         startupNetworkGraceUntilMs = SystemClock.elapsedRealtime() + STARTUP_NETWORK_GRACE_MS
-        cancelOfflineConfirmation()
+        hasReceivedFirstNetworkCallback = false
 
         networkMonitor.start { isOnline ->
             handleNetworkChanged(isOnline)
@@ -220,7 +197,7 @@ class SyncCoordinator(
 
     fun onAppForeground() {
         startupNetworkGraceUntilMs = SystemClock.elapsedRealtime() + STARTUP_NETWORK_GRACE_MS
-        cancelOfflineConfirmation()
+        hasReceivedFirstNetworkCallback = false
         refreshUiState(ignoreOfflineDuringStartupGrace = true)
         updatePanelText()
     }
@@ -351,7 +328,6 @@ class SyncCoordinator(
     fun release() {
         stopNetworkStatePolling()
         stopPanelRefresh()
-        cancelOfflineConfirmation()
         onSyncOfferChanged(null)
         currentOperation = OperationMode.IDLE
         operationInProgress = false
@@ -369,8 +345,6 @@ class SyncCoordinator(
         if (operationInProgress) return
 
         startOperation(OperationMode.REFRESH)
-        // Для тихого обновления панели не трогаем UI-состояние,
-        // чтобы табло не дёргалось на CONNECTING.
         updatePanelText()
 
         mainHandler.postDelayed({
@@ -404,24 +378,24 @@ class SyncCoordinator(
                     ignoreOfflineDuringStartupGrace &&
                     isWithinStartupNetworkGrace()
 
-        val offlineButDebounced =
-            !networkMonitor.isCurrentlyOnline() &&
-                    offlineConfirmationPending
-
-        val state = if (
-            !offlineButGraceActive &&
-            !offlineButDebounced &&
-            !networkMonitor.isCurrentlyOnline()
-        ) {
+        val state = if (!offlineButGraceActive && !networkMonitor.isCurrentlyOnline()) {
             SyncState.NoNetwork
         } else {
             SyncState.Off
         }
-
         setUiState(state)
     }
 
     private fun handleNetworkChanged(isOnline: Boolean) {
+        // Игнорируем первый ложный offline callback в пределах grace-периода.
+        if (!hasReceivedFirstNetworkCallback) {
+            hasReceivedFirstNetworkCallback = true
+            if (!isOnline && isWithinStartupNetworkGrace()) {
+                refreshUiState(ignoreOfflineDuringStartupGrace = true)
+                return
+            }
+        }
+
         lastKnownOnline = isOnline
 
         if (!isOnline) {
@@ -431,18 +405,23 @@ class SyncCoordinator(
             clearPendingUploadState()
             syncRepository.stop()
 
+            // Во время стартового grace вообще не показываем alert.
             if (isWithinStartupNetworkGrace()) {
                 refreshUiState(ignoreOfflineDuringStartupGrace = true)
                 return
             }
 
-            scheduleOfflineConfirmation()
-            refreshUiState(ignoreOfflineDuringStartupGrace = true)
+            if (!networkAlertVisible) {
+                networkAlertVisible = true
+                onNetworkAlertVisible(true)
+            }
+
+            setUiState(SyncState.NoNetwork)
             return
         }
 
+        // Сеть подтверждена — стартовый grace больше не нужен.
         startupNetworkGraceUntilMs = 0L
-        cancelOfflineConfirmation()
 
         if (networkAlertVisible) {
             networkAlertVisible = false
@@ -457,24 +436,11 @@ class SyncCoordinator(
     }
 
     private fun showNoNetworkAlert() {
-        cancelOfflineConfirmation()
-
         if (!networkAlertVisible) {
             networkAlertVisible = true
             onNetworkAlertVisible(true)
         }
         setUiState(SyncState.NoNetwork)
-    }
-
-    private fun scheduleOfflineConfirmation() {
-        if (offlineConfirmationPending) return
-        offlineConfirmationPending = true
-        mainHandler.postDelayed(confirmOfflineRunnable, OFFLINE_CONFIRM_DELAY_MS)
-    }
-
-    private fun cancelOfflineConfirmation() {
-        offlineConfirmationPending = false
-        mainHandler.removeCallbacks(confirmOfflineRunnable)
     }
 
     private fun isSnapshotUsable(
@@ -561,6 +527,5 @@ class SyncCoordinator(
         private const val SERVER_LIST_TTL_MS = 300 * 60 * 1000L
         private const val PANEL_NO_LIST = "SYNC --"
         private const val STARTUP_NETWORK_GRACE_MS = 2500L
-        private const val OFFLINE_CONFIRM_DELAY_MS = 1800L
     }
 }
