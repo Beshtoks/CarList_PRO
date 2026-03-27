@@ -90,6 +90,10 @@ class MainActivity : AppCompatActivity() {
     private var preservedFirstVisibleTop = 0
     private var suppressReplaceCancelOnNextKeyboardHide = false
 
+    // Undo: первое срабатывание только долгим тапом.
+    // После успешного undo короткие тапы разрешены 5 секунд.
+    private var undoQuickTapAllowedUntilMs = 0L
+
     private val recordAudioPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             voiceSessionController.onRecordAudioPermissionResult(granted)
@@ -796,12 +800,23 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            val restored = viewModel.undo()
-            if (restored) {
-                uiSoundManager.playOk()
-                feedback.ok()
-                requestAutoCopyIfNeeded()
+            // Короткий тап разрешён только в течение 5 секунд
+            // после последнего успешного undo.
+            if (!isUndoQuickTapAllowed()) {
+                return@setOnClickListener
             }
+
+            performUndo()
+        }
+
+        binding.btnUndo.setOnLongClickListener {
+            if (isLockedByOther()) {
+                blockedActionFeedback()
+                return@setOnLongClickListener true
+            }
+
+            performUndo()
+            true
         }
 
         binding.btnAutocopy.setOnClickListener {
@@ -872,6 +887,25 @@ class MainActivity : AppCompatActivity() {
 
             true
         }
+    }
+
+    private fun performUndo() {
+        val restored = viewModel.undo()
+        if (restored) {
+            openUndoQuickTapWindow()
+            uiSoundManager.playOk()
+            feedback.ok()
+            requestAutoCopyIfNeeded()
+        }
+    }
+
+    private fun isUndoQuickTapAllowed(): Boolean {
+        return android.os.SystemClock.elapsedRealtime() <= undoQuickTapAllowedUntilMs
+    }
+
+    private fun openUndoQuickTapWindow() {
+        undoQuickTapAllowedUntilMs =
+            android.os.SystemClock.elapsedRealtime() + UNDO_QUICK_TAP_WINDOW_MS
     }
 
     private fun setMicButtonOffState() {
@@ -1213,5 +1247,9 @@ class MainActivity : AppCompatActivity() {
         uiSoundManager.release()
         super.onDestroy()
         feedback.release()
+    }
+
+    companion object {
+        private const val UNDO_QUICK_TAP_WINDOW_MS = 5_000L
     }
 }
