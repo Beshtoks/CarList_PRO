@@ -47,7 +47,13 @@ class SyncForegroundService : Service() {
             }
 
             val now = System.currentTimeMillis()
-            val shouldPing = !currentlyOffline || now - lastPingAtMs >= PING_INTERVAL_MS
+            val pingInterval = if (currentlyOffline) {
+                PING_INTERVAL_RECOVERY_MS
+            } else {
+                PING_INTERVAL_ONLINE_MS
+            }
+
+            val shouldPing = lastPingAtMs == 0L || now - lastPingAtMs >= pingInterval
 
             if (!shouldPing) {
                 applyOnlineState()
@@ -137,6 +143,8 @@ class SyncForegroundService : Service() {
 
             ACTION_START_MONITORING, null -> {
                 updateForegroundNotification()
+                handler.removeCallbacks(monitorRunnable)
+                handler.post(monitorRunnable)
             }
         }
 
@@ -160,8 +168,15 @@ class SyncForegroundService : Service() {
 
     private fun scheduleNextMonitor() {
         if (destroyed) return
+
+        val delay = when {
+            pingInFlight -> MONITOR_INTERVAL_IN_FLIGHT_MS
+            currentlyOffline -> MONITOR_INTERVAL_OFFLINE_MS
+            else -> MONITOR_INTERVAL_ONLINE_MS
+        }
+
         handler.removeCallbacks(monitorRunnable)
-        handler.postDelayed(monitorRunnable, MONITOR_INTERVAL_MS)
+        handler.postDelayed(monitorRunnable, delay)
     }
 
     private fun applyOfflineState() {
@@ -356,8 +371,13 @@ class SyncForegroundService : Service() {
         private const val FOREGROUND_NOTIFICATION_ID = 41001
         private const val ALERT_NOTIFICATION_ID = 41002
 
-        private const val MONITOR_INTERVAL_MS = 1_000L
-        private const val PING_INTERVAL_MS = 3_000L
+        private const val MONITOR_INTERVAL_IN_FLIGHT_MS = 1_000L
+        private const val MONITOR_INTERVAL_OFFLINE_MS = 3_000L
+        private const val MONITOR_INTERVAL_ONLINE_MS = 8_000L
+
+        private const val PING_INTERVAL_RECOVERY_MS = 4_000L
+        private const val PING_INTERVAL_ONLINE_MS = 20_000L
+
         private const val VIBRATION_CYCLE_MS = 3_000L
     }
 }

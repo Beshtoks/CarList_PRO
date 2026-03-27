@@ -119,6 +119,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         syncCoordinator.initialize()
     }
 
+    fun onAppForeground() {
+        syncCoordinator.onAppForeground()
+    }
+
     fun replaceNumber(oldNumber: Int, newNumber: Int): QueueManager.OperationResult {
         val result = queueManager.replaceNumber(
             oldNumber = oldNumber,

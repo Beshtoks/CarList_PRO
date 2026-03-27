@@ -389,6 +389,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         ensureBackgroundMonitorServiceStartedIfPermitted()
+        viewModel.onAppForeground()
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {

@@ -190,6 +190,12 @@ class SyncCoordinator(
         refreshRemoteInfoSilently()
     }
 
+    fun onAppForeground() {
+        startupNetworkGraceUntilMs = SystemClock.elapsedRealtime() + STARTUP_NETWORK_GRACE_MS
+        refreshUiState(ignoreOfflineDuringStartupGrace = true)
+        updatePanelText()
+    }
+
     fun onServerPanelLongPress() {
         // no action
     }
