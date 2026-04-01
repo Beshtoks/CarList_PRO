@@ -1,29 +1,20 @@
 package com.carlist.pro.ui.controller
 
-import android.app.AlertDialog
 import android.content.Context
-import android.content.Intent
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Shader
 import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.util.TypedValue
-import android.view.Gravity
 import android.view.LayoutInflater
-import android.view.View
 import android.view.ViewGroup
-import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog as AppCompatAlertDialog
-import androidx.core.content.ContextCompat
 import com.carlist.pro.R
 import com.carlist.pro.databinding.DialogSyncOfferBinding
 import com.carlist.pro.domain.sync.SyncOffer
-import com.carlist.pro.sync.SyncForegroundService
 
 class SyncUiController(
     private val context: Context,
@@ -66,9 +57,6 @@ class SyncUiController(
         }
     }
 
-    private var networkAlertDialog: AlertDialog? = null
-    private var networkAlertAcknowledged = false
-
     fun showSyncOfferDialog(offer: SyncOffer) {
         dismissSyncOfferDialogOnly()
     }
@@ -108,81 +96,11 @@ class SyncUiController(
     }
 
     fun showNetworkAlertDialog() {
-        if (networkAlertDialog?.isShowing == true) return
-
-        networkAlertAcknowledged = false
-
-        val density = context.resources.displayMetrics.density
-
-        val container = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(
-                (24 * density).toInt(),
-                (20 * density).toInt(),
-                (24 * density).toInt(),
-                (20 * density).toInt()
-            )
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 18f * density
-                setColor(0xFF1A001F.toInt())
-                setStroke((1 * density).toInt(), 0xFF5A1A2A.toInt())
-            }
-        }
-
-        val titleView = TextView(context).apply {
-            text = "WARNING"
-            setTextColor(0xFFFF4444.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
-            gravity = Gravity.CENTER
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-        }
-
-        val messageView = TextView(context).apply {
-            text = "No network connection"
-            setTextColor(0xFFFF4444.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-            gravity = Gravity.CENTER
-            setPadding(0, (10 * density).toInt(), 0, 0)
-        }
-
-        container.addView(
-            titleView,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
-
-        container.addView(
-            messageView,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
-
-        container.setOnClickListener {
-            acknowledgeNetworkAlert()
-        }
-
-        val dialog = AlertDialog.Builder(context)
-            .setView(container)
-            .create()
-
-        dialog.setCancelable(false)
-        dialog.setCanceledOnTouchOutside(false)
-        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        dialog.setOnKeyListener { _, _, _ -> true }
-
-        networkAlertDialog = dialog
-        dialog.show()
+        onNetworkAlertAcknowledged()
     }
 
     fun dismissNetworkAlertDialogOnly() {
-        networkAlertDialog?.dismiss()
-        networkAlertDialog = null
+        // network disconnect warning removed
     }
 
     fun release() {
@@ -190,9 +108,6 @@ class SyncUiController(
         syncOfferDialog?.dismiss()
         syncOfferDialog = null
         syncOfferBinding = null
-
-        networkAlertDialog?.dismiss()
-        networkAlertDialog = null
     }
 
     private fun createSyncOfferDialog() {
@@ -236,7 +151,7 @@ class SyncUiController(
         binding.tvMinutesValue.text = "CURRENT LIST"
         binding.tvMinutesLabel.text = "THIS DEVICE"
         binding.tvQuestion.text = "Upload the list?"
-        binding.tvSecondsLeft.visibility = View.VISIBLE
+        binding.tvSecondsLeft.visibility = android.view.View.VISIBLE
         binding.tvSecondsLeft.text = "${syncOfferInitialSeconds.coerceAtLeast(0)} sec"
         binding.btnNo.text = "NO"
         binding.btnDownload.text = "YES"
@@ -297,21 +212,5 @@ class SyncUiController(
         syncOfferDialog?.dismiss()
         syncOfferDialog = null
         syncOfferBinding = null
-    }
-
-    private fun acknowledgeNetworkAlert() {
-        if (networkAlertAcknowledged) return
-
-        networkAlertAcknowledged = true
-        silenceForegroundServiceAlert()
-        onNetworkAlertAcknowledged()
-        dismissNetworkAlertDialogOnly()
-    }
-
-    private fun silenceForegroundServiceAlert() {
-        val intent = Intent(context, SyncForegroundService::class.java).apply {
-            action = SyncForegroundService.ACTION_SILENCE_ALERT
-        }
-        ContextCompat.startForegroundService(context, intent)
     }
 }

@@ -12,11 +12,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.os.VibrationEffect
-import android.os.Vibrator
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import com.carlist.pro.R
 import com.carlist.pro.data.sync.FirebaseSyncRepository
 import com.carlist.pro.data.sync.NetworkMonitor
 import com.carlist.pro.ui.MainActivity
@@ -33,7 +30,6 @@ class SyncForegroundService : Service() {
     private var pingInFlight = false
     private var lastPingAtMs = 0L
     private var currentlyOffline = false
-    private var alertAcknowledged = false
 
     private val monitorRunnable = object : Runnable {
         override fun run() {
@@ -82,14 +78,6 @@ class SyncForegroundService : Service() {
         }
     }
 
-    private val vibrationLoopRunnable = object : Runnable {
-        override fun run() {
-            if (destroyed || !currentlyOffline || alertAcknowledged) return
-            vibrateNetworkPulse()
-            handler.postDelayed(this, VIBRATION_CYCLE_MS)
-        }
-    }
-
     override fun onCreate() {
         super.onCreate()
 
@@ -113,7 +101,7 @@ class SyncForegroundService : Service() {
 
         startForeground(
             FOREGROUND_NOTIFICATION_ID,
-            buildForegroundNotification(offline = false)
+            buildForegroundNotification()
         )
 
         handler.post(monitorRunnable)
@@ -133,14 +121,6 @@ class SyncForegroundService : Service() {
         }
 
         when (intent?.action) {
-            ACTION_SILENCE_ALERT -> {
-                alertAcknowledged = true
-                handler.removeCallbacks(vibrationLoopRunnable)
-                stopVibration()
-                notificationManager.cancel(ALERT_NOTIFICATION_ID)
-                updateForegroundNotification()
-            }
-
             ACTION_START_MONITORING, null -> {
                 updateForegroundNotification()
                 handler.removeCallbacks(monitorRunnable)
@@ -154,13 +134,6 @@ class SyncForegroundService : Service() {
     override fun onDestroy() {
         destroyed = true
         handler.removeCallbacks(monitorRunnable)
-        handler.removeCallbacks(vibrationLoopRunnable)
-        stopVibration()
-
-        if (::notificationManager.isInitialized) {
-            notificationManager.cancel(ALERT_NOTIFICATION_ID)
-        }
-
         super.onDestroy()
     }
 
@@ -180,29 +153,12 @@ class SyncForegroundService : Service() {
     }
 
     private fun applyOfflineState() {
-        val wasOffline = currentlyOffline
         currentlyOffline = true
-
-        if (!wasOffline) {
-            alertAcknowledged = false
-            showAlertNotification()
-            startVibrationLoop()
-        }
-
         updateForegroundNotification()
     }
 
     private fun applyOnlineState() {
-        val wasOffline = currentlyOffline
         currentlyOffline = false
-        alertAcknowledged = false
-
-        if (wasOffline) {
-            handler.removeCallbacks(vibrationLoopRunnable)
-            stopVibration()
-            notificationManager.cancel(ALERT_NOTIFICATION_ID)
-        }
-
         updateForegroundNotification()
     }
 
@@ -211,11 +167,11 @@ class SyncForegroundService : Service() {
 
         notificationManager.notify(
             FOREGROUND_NOTIFICATION_ID,
-            buildForegroundNotification(offline = currentlyOffline)
+            buildForegroundNotification()
         )
     }
 
-    private fun buildForegroundNotification(offline: Boolean): Notification {
+    private fun buildForegroundNotification(): Notification {
         val contentIntent = PendingIntent.getActivity(
             this,
             100,
@@ -225,22 +181,10 @@ class SyncForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val text = if (offline) {
-            "No network connection"
-        } else {
-            "Monitoring connection"
-        }
-
-        val iconRes = if (offline) {
-            android.R.drawable.stat_notify_error
-        } else {
-            android.R.drawable.stat_notify_sync
-        }
-
         return NotificationCompat.Builder(this, FOREGROUND_CHANNEL_ID)
-            .setSmallIcon(iconRes)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle("CarList PRO")
-            .setContentText(text)
+            .setContentText("Monitoring connection")
             .setOngoing(true)
             .setSilent(true)
             .setOnlyAlertOnce(true)
@@ -248,89 +192,6 @@ class SyncForegroundService : Service() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
-    }
-
-    private fun showAlertNotification() {
-        if (!::notificationManager.isInitialized) return
-
-        val openAppIntent = PendingIntent.getActivity(
-            this,
-            101,
-            Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val silenceIntent = PendingIntent.getService(
-            this,
-            102,
-            Intent(this, SyncForegroundService::class.java).apply {
-                action = ACTION_SILENCE_ALERT
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_notify_error)
-            .setContentTitle("CarList PRO")
-            .setContentText("No network connection")
-            .setStyle(
-                NotificationCompat.BigTextStyle()
-                    .bigText("No network connection")
-            )
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setAutoCancel(false)
-            .setOngoing(false)
-            .setOnlyAlertOnce(true)
-            .setContentIntent(openAppIntent)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_ERROR)
-            .addAction(
-                android.R.drawable.ic_lock_silent_mode,
-                "Silence",
-                silenceIntent
-            )
-            .build()
-
-        notificationManager.notify(ALERT_NOTIFICATION_ID, notification)
-    }
-
-    private fun startVibrationLoop() {
-        handler.removeCallbacks(vibrationLoopRunnable)
-        handler.post(vibrationLoopRunnable)
-    }
-
-    private fun vibrateNetworkPulse() {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            getSystemService(Vibrator::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(VIBRATOR_SERVICE) as? Vibrator
-        } ?: return
-
-        val pattern = longArrayOf(
-            0L, 110L, 70L, 110L, 70L, 110L,
-            70L, 110L, 70L, 110L, 70L, 110L
-        )
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(pattern, -1)
-        }
-    }
-
-    private fun stopVibration() {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            getSystemService(Vibrator::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(VIBRATOR_SERVICE) as? Vibrator
-        } ?: return
-
-        vibrator.cancel()
     }
 
     private fun createNotificationChannels() {
@@ -346,30 +207,14 @@ class SyncForegroundService : Service() {
             enableVibration(false)
         }
 
-        val alertChannel = NotificationChannel(
-            ALERT_CHANNEL_ID,
-            "CarList PRO Alerts",
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "Connection loss alerts"
-            enableLights(false)
-            enableVibration(false)
-            setSound(null, null)
-        }
-
         notificationManager.createNotificationChannel(foregroundChannel)
-        notificationManager.createNotificationChannel(alertChannel)
     }
 
     companion object {
         const val ACTION_START_MONITORING = "com.carlist.pro.action.START_MONITORING"
-        const val ACTION_SILENCE_ALERT = "com.carlist.pro.action.SILENCE_ALERT"
 
         private const val FOREGROUND_CHANNEL_ID = "carlist_foreground_monitor"
-        private const val ALERT_CHANNEL_ID = "carlist_alerts"
-
         private const val FOREGROUND_NOTIFICATION_ID = 41001
-        private const val ALERT_NOTIFICATION_ID = 41002
 
         private const val MONITOR_INTERVAL_IN_FLIGHT_MS = 1_000L
         private const val MONITOR_INTERVAL_OFFLINE_MS = 3_000L
@@ -377,7 +222,5 @@ class SyncForegroundService : Service() {
 
         private const val PING_INTERVAL_RECOVERY_MS = 4_000L
         private const val PING_INTERVAL_ONLINE_MS = 20_000L
-
-        private const val VIBRATION_CYCLE_MS = 3_000L
     }
 }
